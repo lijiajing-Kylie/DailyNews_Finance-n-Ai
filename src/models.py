@@ -35,6 +35,7 @@ class ContentItem(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     # AI analysis results
+    ai_relevant: Optional[bool] = None  # True = relevant to AI/LLMs, False = not relevant
     ai_score: Optional[float] = None  # 0-10 importance score
     ai_reason: Optional[str] = None
     ai_summary: Optional[str] = None
@@ -339,6 +340,7 @@ class WebhookConfig(BaseModel):
         None  # Optional language filter for webhook delivery; defaults to all AI languages
     )
     enabled: bool = False
+    max_items: Optional[int] = Field(default=None, gt=0)
 
     @field_validator("delivery")
     @classmethod

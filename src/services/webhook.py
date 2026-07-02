@@ -731,9 +731,16 @@ class WebhookNotifier:
             lang: Language code ("en" or "zh")
             summarizer: DailySummarizer instance for generating webhook overviews
         """
+        # Apply webhook max_items limit (top-K by score)
+        max_items = getattr(self.config, "max_items", None)
+        if max_items is not None and max_items > 0:
+            items_to_send = important_items[:max_items]
+        else:
+            items_to_send = important_items
+
         messages = self.build_daily_summary_messages(
             summary=summary,
-            important_items=important_items,
+            important_items=items_to_send,
             all_items_count=all_items_count,
             date=date,
             lang=lang,

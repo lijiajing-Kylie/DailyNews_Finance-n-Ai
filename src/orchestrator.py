@@ -105,10 +105,22 @@ class HorizonOrchestrator:
             analyzed_items = await self._analyze_content(merged_items)
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
 
+            # 4.5 Filter by AI relevance (binary gate — only AI/LLM content passes)
+            relevant_items = [
+                item for item in analyzed_items
+                if item.ai_relevant is True
+            ]
+            skipped_relevance = len(analyzed_items) - len(relevant_items)
+            if skipped_relevance > 0:
+                self.console.print(
+                    f"🎯 {len(relevant_items)} items are AI-relevant "
+                    f"({skipped_relevance} non-relevant items dropped)\n"
+                )
+
             # 5. Filter by score threshold
             threshold = self.config.filtering.ai_score_threshold
             important_items = [
-                item for item in analyzed_items
+                item for item in relevant_items
                 if item.ai_score and item.ai_score >= threshold
             ]
             important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)

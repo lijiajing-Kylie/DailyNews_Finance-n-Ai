@@ -58,6 +58,9 @@ logs/*.log
 # uv
 .uv/
 
+# SQLite databases
+*.db
+
 # todo
 todo.txt
 .ruff_cache

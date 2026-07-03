@@ -107,7 +107,7 @@ class GitHubScraper(BaseScraper):
                 ]:
                     continue
 
-                item = self._parse_event(event, username)
+                item = self._parse_event(event, username, category)
                 if item:
                     items.append(item)
 
@@ -116,7 +116,7 @@ class GitHubScraper(BaseScraper):
 
         return items
 
-    def _parse_event(self, event: dict, username: str) -> Optional[ContentItem]:
+    def _parse_event(self, event: dict, username: str, category: Optional[str] = None) -> Optional[ContentItem]:
         """Parse GitHub event into ContentItem.
 
         Args:

@@ -11,6 +11,7 @@ from rich.console import Console
 
 from .models import Config, ContentItem
 from .storage.manager import StorageManager
+from .storage.db import HorizonDB
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .scrapers.github import GitHubScraper
@@ -54,6 +55,7 @@ class HorizonOrchestrator:
         """
         self.config = config
         self.storage = storage
+        self.db = HorizonDB()
         self.console = Console()
         self.email_manager = EmailManager(config.email, console=self.console) if config.email else None
         self.webhook_notifier = (
@@ -157,8 +159,12 @@ class HorizonOrchestrator:
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self._enrich_important_items(important_items)
 
-            # 7. Generate and save daily summaries for each configured language
+            # 6.5 Persist scored + enriched items to SQLite for API serving
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            saved = self.db.save_items(important_items, today, len(all_items))
+            self.console.print(f"💾 Persisted {saved} items to SQLite\n")
+
+            # 7. Generate and save daily summaries for each configured language
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer()
                 summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)

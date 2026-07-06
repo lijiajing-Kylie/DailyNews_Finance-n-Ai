@@ -174,9 +174,6 @@ class DailySummarizer:
             or item.ai_summary
             or ""
         )
-        # --- background temporarily disabled ---
-        # background = meta.get(f"background_{language}") or meta.get("background") or ""
-        # ---------------------------------------
         discussion = (
             meta.get(f"community_discussion_{language}")
             or meta.get("community_discussion")
@@ -186,7 +183,6 @@ class DailySummarizer:
         if language == "zh":
             title = _pangu(title)
             summary = _pangu(summary)
-            # background = _pangu(background)  # temporarily disabled
             discussion = _pangu(discussion)
 
         # Source line with parts joined by " · ", link appended at end
@@ -215,13 +211,40 @@ class DailySummarizer:
             if discussion_url != url:
                 source_line += f' · [{labels["discussion"]}]({discussion_url})'
 
+        # Source attribution (multi-source coverage)
+        attribution = meta.get("source_attribution")
+        attribution_html = ""
+        if attribution and attribution.get("count", 0) > 1:
+            count = attribution["count"]
+            disp_labels = attribution.get("labels", [])
+            if len(disp_labels) > 2:
+                label_summary = ", ".join(disp_labels[:2])
+                if language == "zh":
+                    attribution_summary = f"📰 {label_summary} 等 {count} 家报道"
+                else:
+                    attribution_summary = f"📰 {count} sources · {', '.join(disp_labels[:3])}"
+            else:
+                if language == "zh":
+                    attribution_summary = f"📰 {', '.join(disp_labels)} 等 {count} 家报道"
+                else:
+                    attribution_summary = f"📰 {count} sources · {', '.join(disp_labels)}"
+
+            detail_lines = []
+            for d in attribution.get("detail", []):
+                detail_lines.append(f"<li>[{d['label']}]({d['url']}) — {d['title']}</li>")
+            detail_block = "\n".join(detail_lines)
+            attribution_html = (
+                f'\n\n<details><summary>{attribution_summary}</summary>\n\n'
+                f'<ul>\n{detail_block}\n</ul>\n</details>'
+            )
+
         lines = [
             f'<a id="item-{index}"></a>',
-            f"## [{title}]({url}) \u2b50\ufe0f {score}/10",  # ⭐️
+            f"## [{title}]({url}) ⭐️ {score}/10",  # ⭐️
             "",
             summary,
             "",
-            source_line,
+            source_line + attribution_html,
         ]
 
         reason = item.ai_reason or ""
@@ -232,30 +255,9 @@ class DailySummarizer:
             else:
                 lines.insert(4, f"> **Reason**: {reason}")
 
-        # --- background + references temporarily disabled ---
-        # if background:
-        #     lines.append("")
-        #     lines.append(f"**{labels['background']}**: {background}")
-        #
-        # sources = meta.get("sources") or []
-        # if sources:
-        #     items_html = "".join(f'<li><a href="{s["url"]}">{s["title"]}</a></li>\n' for s in sources)
-        #     lines += [
-        #         "",
-        #         f'<details><summary>{labels["references"]}</summary>\n<ul>\n{items_html}\n</ul>\n</details>',
-        #     ]
-        # ----------------------------------------------------
-
         if discussion:
             lines.append("")
             lines.append(f"**{labels['discussion']}**: {discussion}")
-
-        # --- tags temporarily disabled ---
-        # if item.ai_tags:
-        #     tags_str = ", ".join([f"`#{t}`" for t in item.ai_tags])
-        #     lines.append("")
-        #     lines.append(f"**{labels['tags']}**: {tags_str}")
-        # ---------------------------------
 
         lines.append("")
         lines.append("---")

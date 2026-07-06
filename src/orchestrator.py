@@ -124,15 +124,37 @@ class HorizonOrchestrator:
 
             # 5. Filter by score threshold
             threshold = self.config.filtering.ai_score_threshold
-            important_items = [
+            max_items = self.config.filtering.max_items
+
+            above_threshold = [
                 item for item in relevant_items
                 if item.ai_score and item.ai_score >= threshold
             ]
-            important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)
+            below_threshold = [
+                item for item in relevant_items
+                if item.ai_score and item.ai_score < threshold
+            ]
+            # Sort both groups descending by score
+            above_threshold.sort(key=lambda x: x.ai_score or 0, reverse=True)
+            below_threshold.sort(key=lambda x: x.ai_score or 0, reverse=True)
 
-            self.console.print(
-                f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
-            )
+            # Backfill: when above-threshold items are fewer than max_items,
+            # take the highest-scoring items below threshold to fill the gap.
+            important_items = above_threshold
+            if max_items is not None and len(important_items) < max_items:
+                needed = max_items - len(important_items)
+                important_items = important_items + below_threshold[:needed]
+                # Re-sort merged list
+                important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)
+                self.console.print(
+                    f"⭐️ {len(above_threshold)} items scored ≥ {threshold}, "
+                    f"backfilled {min(needed, len(below_threshold))} below-threshold "
+                    f"→ {len(important_items)} total (max_items={max_items})\n"
+                )
+            else:
+                self.console.print(
+                    f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
+                )
 
             # 5.5 Semantic deduplication: drop items covering the same topic
             deduped_items = await self.merge_topic_duplicates(important_items)
@@ -142,6 +164,9 @@ class HorizonOrchestrator:
                     f"→ {len(deduped_items)} unique items\n"
                 )
             important_items = deduped_items
+
+            # 5.51 Build unified source attribution for display
+            self._build_source_attribution(important_items)
 
             # 5.6 Optional second-stage Twitter reply expansion + targeted re-analysis
             await self._expand_twitter_discussion(important_items)
@@ -407,6 +432,68 @@ class HorizonOrchestrator:
             return meta["domain"]
         return item.author or "unknown"
 
+    @staticmethod
+    def _build_source_attribution(items: List[ContentItem]) -> None:
+        """Build unified source attribution metadata for display.
+
+        Aggregates sources from URL dedup (``merged_sources``) and semantic
+        topic dedup (``topic_coverage``) plus the item's own source label
+        into ``metadata["source_attribution"]``:
+
+        .. code-block:: json
+
+          {
+            "count": 4,
+            "labels": ["OpenAI Blog", "TechCrunch", "Hacker News", "AI News"],
+            "detail": [{"label": "OpenAI Blog", "title": "...", "url": "..."}, ...]
+          }
+
+        Items with only one source are left unchanged.
+        """
+        for item in items:
+            # Collect all sources: self + URL-merged + topic-merged
+            detail: list[dict] = []
+            detail.append({
+                "label": HorizonOrchestrator._sub_source_label(item),
+                "title": item.title,
+                "url": str(item.url),
+            })
+            for src in item.metadata.pop("merged_sources", []) or []:
+                if isinstance(src, dict):
+                    detail.append({
+                        "label": src.get("label", src.get("source_type", "")),
+                        "title": item.title,
+                        "url": str(item.url),
+                    })
+            for src in item.metadata.pop("topic_coverage", []) or []:
+                detail.append({
+                    "label": src.get("label", src.get("source_type", "")),
+                    "title": src.get("title", ""),
+                    "url": src.get("url", ""),
+                })
+
+            # Deduplicate by label (same source may appear in both lists)
+            seen_labels: set[str] = set()
+            unique_detail: list[dict] = []
+            for d in detail:
+                if d["label"] not in seen_labels:
+                    seen_labels.add(d["label"])
+                    unique_detail.append(d)
+
+            if len(unique_detail) <= 1:
+                continue
+
+            # Truncate long titles for compact display
+            for d in unique_detail:
+                if len(d["title"]) > 60:
+                    d["title"] = d["title"][:57] + "..."
+
+            item.metadata["source_attribution"] = {
+                "count": len(unique_detail),
+                "labels": [d["label"] for d in unique_detail],
+                "detail": unique_detail,
+            }
+
     def merge_cross_source_duplicates(self, items: List[ContentItem]) -> List[ContentItem]:
         """Merge items that point to the same URL from different sources.
 
@@ -445,9 +532,12 @@ class HorizonOrchestrator:
             primary = max(group, key=lambda x: len(x.content or ""))
 
             # Merge metadata and source info from other items
-            all_sources = set()
+            all_sources_dicts: list[dict] = []
             for item in group:
-                all_sources.add(item.source_type.value)
+                all_sources_dicts.append({
+                    "source_type": item.source_type.value,
+                    "label": self._sub_source_label(item),
+                })
                 # Merge metadata (engagement, discussion, etc.)
                 for mk, mv in item.metadata.items():
                     if mk not in primary.metadata or not primary.metadata[mk]:
@@ -458,7 +548,7 @@ class HorizonOrchestrator:
                     if primary.content and item.content not in primary.content:
                         primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
 
-            primary.metadata["merged_sources"] = list(all_sources)
+            primary.metadata["merged_sources"] = all_sources_dicts
             merged.append(primary)
 
         return merged
@@ -517,6 +607,7 @@ class HorizonOrchestrator:
             if primary_idx < 0 or primary_idx >= len(items):
                 continue
             primary = items[primary_idx]
+            primary_topic_sources: list[dict] = primary.metadata.setdefault("topic_coverage", [])
             for dup_idx in group[1:]:
                 if not isinstance(dup_idx, int) or dup_idx < 0 or dup_idx >= len(items):
                     continue
@@ -528,6 +619,13 @@ class HorizonOrchestrator:
                     if not primary.content or dup.content not in primary.content:
                         label = dup.source_type.value
                         primary.content = (primary.content or "") + f"\n\n--- From {label} ---\n{dup.content}"
+                # Record source attribution for the dropped item
+                primary_topic_sources.append({
+                    "source_type": dup.source_type.value,
+                    "label": self._sub_source_label(dup),
+                    "title": dup.title,
+                    "url": str(dup.url),
+                })
                 self.console.print(
                     f"   [dim]dedup: keep [{primary_idx}] {primary.title}[/dim]\n"
                     f"   [dim]       drop [{dup_idx}] {dup.title}[/dim]"
@@ -817,29 +915,6 @@ class HorizonOrchestrator:
                 f"[yellow]⚠️  Could not seed topics: {e}[/yellow]"
             )
 
-    async def _generate_summary(
-        self,
-        items: List[ContentItem],
-        date: str,
-        total_fetched: int,
-        language: str = "en",
-    ) -> str:
-        """Generate daily summary.
-
-        Args:
-            items: Important items to include (already enriched with background/related)
-            date: Date string
-            total_fetched: Total items fetched
-            language: Output language ("en" or "zh")
-
-        Returns:
-            str: Markdown summary
-        """
-        self.console.print("📝 Generating daily summary...")
-
-        summarizer = DailySummarizer()
-
-        return await summarizer.generate_summary(items, date, total_fetched, language=language)
 
 
 # ---------------------------------------------------------------------------

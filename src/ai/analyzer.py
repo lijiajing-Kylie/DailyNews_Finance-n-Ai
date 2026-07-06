@@ -1,16 +1,14 @@
 """Content analysis using AI."""
 
 import asyncio
-import json
-import re
-from typing import List, Optional
+from typing import List
 from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 
 from .client import AIClient
 from .prompts import CONTENT_ANALYSIS_SYSTEM, CONTENT_ANALYSIS_USER
 from .prompts import TOPIC_CLASSIFICATION_SYSTEM, TOPIC_CLASSIFICATION_USER
-from .utils import parse_json_response
+from .utils import parse_json_response, split_content_and_comments, build_discussion_section
 from ..models import ContentItem
 
 DEFAULT_THROTTLE_SEC = 0.0
@@ -21,14 +19,6 @@ class ContentAnalyzer:
 
     def __init__(self, ai_client: AIClient):
         self.client = ai_client
-
-    @staticmethod
-    def _parse_json_response(response: str) -> Optional[dict]:
-        """Try multiple strategies to extract a JSON object from an AI response.
-
-        Returns the parsed dict, or None if all strategies fail.
-        """
-        return parse_json_response(response)
 
     def _get_throttle_sec(self) -> float:
         """Return the configured inter-item throttle, clamped to zero or above."""
@@ -88,48 +78,13 @@ class ContentAnalyzer:
             item: Content item to analyze (modified in-place)
         """
         # Prepare content section
-        content_section = ""
-        if item.content:
-            # Split off comments if present
-            content_text = item.content
-            if "--- Top Comments ---" in content_text:
-                main, comments_part = content_text.split("--- Top Comments ---", 1)
-                content_section = f"Content: {main.strip()[:800]}"
-            else:
-                content_section = f"Content: {content_text[:1000]}"
+        text, comments = split_content_and_comments(item.content)
+        has_comments = "--- Top Comments ---" in (item.content or "")
+        content_limit = 800 if has_comments else 1000
+        content_section = f"Content: {text[:content_limit]}" if text else ""
 
         # Prepare discussion section (comments, engagement)
-        discussion_parts = []
-        if item.content and "--- Top Comments ---" in item.content:
-            comments_part = item.content.split("--- Top Comments ---", 1)[1]
-            discussion_parts.append(f"Community Comments:\n{comments_part[:1500]}")
-
-        meta = item.metadata
-        engagement_items = []
-        if meta.get("score"):
-            engagement_items.append(f"score: {meta['score']}")
-        if meta.get("descendants"):
-            engagement_items.append(f"{meta['descendants']} comments")
-        if meta.get("favorite_count"):
-            engagement_items.append(f"{meta['favorite_count']} likes")
-        if meta.get("retweet_count"):
-            engagement_items.append(f"{meta['retweet_count']} retweets")
-        if meta.get("reply_count"):
-            engagement_items.append(f"{meta['reply_count']} replies")
-        if meta.get("views"):
-            engagement_items.append(f"{meta['views']} views")
-        if meta.get("bookmarks"):
-            engagement_items.append(f"{meta['bookmarks']} bookmarks")
-        if meta.get("upvote_ratio"):
-            engagement_items.append(f"upvote ratio: {meta['upvote_ratio']:.0%}")
-        if engagement_items:
-            discussion_parts.append(f"Engagement: {', '.join(engagement_items)}")
-        if meta.get("discussion_url"):
-            discussion_parts.append(f"Discussion: {meta['discussion_url']}")
-        if meta.get("community_note"):
-            discussion_parts.append(f"Community Note: {meta['community_note']}")
-
-        discussion_section = "\n".join(discussion_parts) if discussion_parts else ""
+        discussion_section = build_discussion_section(item.metadata, comments[:1500])
 
         # Generate user prompt
         user_prompt = CONTENT_ANALYSIS_USER.format(
@@ -148,7 +103,7 @@ class ContentAnalyzer:
         )
 
         # Parse JSON response with robust fallback
-        result = self._parse_json_response(response)
+        result = parse_json_response(response)
         if result is None:
             print(f"Warning: could not parse analysis response for {item.id}, using defaults")
             item.ai_relevant = False
@@ -234,10 +189,6 @@ class ContentAnalyzer:
             progress.advance(progress_task)
             return result
 
-        from rich.progress import (
-            Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn,
-        )
-
         results: list[dict[str, Any]] = []
         with Progress(
             SpinnerColumn(),
@@ -269,45 +220,13 @@ class ContentAnalyzer:
             List of topic dicts with slug, name, group_name, confidence, reason.
         """
         # Prepare content section
-        content_section = ""
-        if item.content:
-            content_text = item.content
-            if "--- Top Comments ---" in content_text:
-                main, _ = content_text.split("--- Top Comments ---", 1)
-                content_section = f"Content: {main.strip()[:800]}"
-            else:
-                content_section = f"Content: {content_text[:1000]}"
+        text, comments = split_content_and_comments(item.content)
+        has_comments = "--- Top Comments ---" in (item.content or "")
+        content_limit = 800 if has_comments else 1000
+        content_section = f"Content: {text[:content_limit]}" if text else ""
 
         # Prepare discussion section
-        discussion_parts = []
-        if item.content and "--- Top Comments ---" in item.content:
-            comments_part = item.content.split("--- Top Comments ---", 1)[1]
-            discussion_parts.append(f"Community Comments:\n{comments_part[:1500]}")
-
-        meta = item.metadata
-        engagement_items = []
-        if meta.get("score"):
-            engagement_items.append(f"score: {meta['score']}")
-        if meta.get("descendants"):
-            engagement_items.append(f"{meta['descendants']} comments")
-        if meta.get("favorite_count"):
-            engagement_items.append(f"{meta['favorite_count']} likes")
-        if meta.get("retweet_count"):
-            engagement_items.append(f"{meta['retweet_count']} retweets")
-        if meta.get("reply_count"):
-            engagement_items.append(f"{meta['reply_count']} replies")
-        if meta.get("views"):
-            engagement_items.append(f"{meta['views']} views")
-        if meta.get("bookmarks"):
-            engagement_items.append(f"{meta['bookmarks']} bookmarks")
-        if meta.get("upvote_ratio"):
-            engagement_items.append(f"upvote ratio: {meta['upvote_ratio']:.0%}")
-        if engagement_items:
-            discussion_parts.append(f"Engagement: {', '.join(engagement_items)}")
-        if meta.get("community_note"):
-            discussion_parts.append(f"Community Note: {meta['community_note']}")
-
-        discussion_section = "\n".join(discussion_parts) if discussion_parts else ""
+        discussion_section = build_discussion_section(item.metadata, comments[:1500])
 
         # Build user prompt
         user_prompt = TOPIC_CLASSIFICATION_USER.format(
@@ -329,7 +248,7 @@ class ContentAnalyzer:
         )
 
         # Parse JSON response
-        result = self._parse_json_response(response)
+        result = parse_json_response(response)
         if result is None:
             print(f"Warning: could not parse topic classification for {item.id}")
             return []

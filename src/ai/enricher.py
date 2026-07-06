@@ -6,11 +6,9 @@ For items that pass the score threshold, this module:
 """
 
 import asyncio
-import json
-import re
 import sys
 import os
-from typing import List, Optional
+from typing import List
 from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 from ddgs import DDGS
@@ -20,7 +18,7 @@ from .prompts import (
     CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,
     CONTENT_ENRICHMENT_SYSTEM, CONTENT_ENRICHMENT_USER,
 )
-from .utils import parse_json_response
+from .utils import parse_json_response, split_content_and_comments
 from ..models import ContentItem
 
 
@@ -91,14 +89,6 @@ class ContentEnricher:
             for r in (results or [])
         ]
 
-    @staticmethod
-    def _parse_json_response(response: str) -> Optional[dict]:
-        """Try multiple strategies to extract a JSON object from an AI response.
-
-        Returns the parsed dict, or None if all strategies fail.
-        """
-        return parse_json_response(response)
-
     async def _extract_concepts(self, item: ContentItem, content_text: str) -> List[str]:
         """Ask AI to identify concepts that need explanation.
 
@@ -121,7 +111,7 @@ class ContentEnricher:
                 system=CONCEPT_EXTRACTION_SYSTEM,
                 user=user_prompt,
             )
-            result = self._parse_json_response(response)
+            result = parse_json_response(response)
             if result is None:
                 return []
             queries = result.get("queries", [])
@@ -145,15 +135,9 @@ class ContentEnricher:
             item: Content item to enrich (modified in-place via metadata)
         """
         # Extract content text and comments separately
-        content_text = ""
-        comments_text = ""
-        if item.content:
-            if "--- Top Comments ---" in item.content:
-                main, comments_part = item.content.split("--- Top Comments ---", 1)
-                content_text = main.strip()[:4000]
-                comments_text = comments_part.strip()[:2000]
-            else:
-                content_text = item.content[:4000]
+        content_text, comments_text = split_content_and_comments(item.content)
+        content_text = content_text[:4000]
+        comments_text = comments_text[:2000]
 
         # Step 1: AI identifies concepts to explain
         queries = await self._extract_concepts(item, content_text)
@@ -191,7 +175,7 @@ class ContentEnricher:
         )
 
         # Parse JSON response with robust fallback
-        result = self._parse_json_response(response)
+        result = parse_json_response(response)
         if result is None:
             # Gracefully degrade: fall back to a lightweight translation
             # instead of dropping the item untranslated.
@@ -212,12 +196,6 @@ class ContentEnricher:
                     parts.append(text)
             if parts:
                 item.metadata[f"detailed_summary_{lang}"] = " ".join(parts)
-
-            # --- background fields temporarily disabled ---
-            # if result.get(f"background_{lang}"):
-            #     val = result[f"background_{lang}"]
-            #     item.metadata[f"background_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
-            # ------------------------------------------------
 
             if result.get(f"community_discussion_{lang}"):
                 val = result[f"community_discussion_{lang}"]
@@ -242,7 +220,6 @@ class ContentEnricher:
 
         # Backward-compatible fallback fields (English as default)
         item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_en", "")
-        # item.metadata["background"] = item.metadata.get("background_en", "")  # temporarily disabled
         item.metadata["community_discussion"] = item.metadata.get("community_discussion_en", "")
 
     async def _translate_item(self, item: ContentItem) -> None:
@@ -259,7 +236,7 @@ class ContentEnricher:
                     '{"title_zh": "<中文标题>", "summary_zh": "<用中文写1-2句摘要>", "reason_zh": "<用中文写一句话，表达相同的评分判断>"}'
                 ),
             )
-            result = self._parse_json_response(response)
+            result = parse_json_response(response)
             if result:
                 if result.get("title_zh"):
                     item.metadata["title_zh"] = result["title_zh"]

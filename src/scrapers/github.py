@@ -57,11 +57,11 @@ class GitHubScraper(BaseScraper):
                 continue
 
             if source.type == "user_events" and source.username:
-                user_items = await self._fetch_user_events(source.username, since, source.category)
+                user_items = await self._fetch_user_events(source.username, since, source.category, source.source_group)
                 items.extend(user_items)
             elif source.type == "repo_releases" and source.owner and source.repo:
                 release_items = await self._fetch_repo_releases(
-                    source.owner, source.repo, since, source.category
+                    source.owner, source.repo, since, source.category, source.source_group
                 )
                 items.extend(release_items)
 
@@ -72,6 +72,7 @@ class GitHubScraper(BaseScraper):
         username: str,
         since: datetime,
         category: Optional[str] = None,
+        source_group: str = "ai",
     ) -> List[ContentItem]:
         """Fetch public events for a user.
 
@@ -79,6 +80,7 @@ class GitHubScraper(BaseScraper):
             username: GitHub username
             since: Only fetch events after this time
             category: Optional category label for downstream grouping
+            source_group: Source group label (ai or finance)
 
         Returns:
             List[ContentItem]: Event content items
@@ -107,7 +109,7 @@ class GitHubScraper(BaseScraper):
                 ]:
                     continue
 
-                item = self._parse_event(event, username, category)
+                item = self._parse_event(event, username, category, source_group)
                 if item:
                     items.append(item)
 
@@ -116,7 +118,7 @@ class GitHubScraper(BaseScraper):
 
         return items
 
-    def _parse_event(self, event: dict, username: str, category: Optional[str] = None) -> Optional[ContentItem]:
+    def _parse_event(self, event: dict, username: str, category: Optional[str] = None, source_group: str = "ai") -> Optional[ContentItem]:
         """Parse GitHub event into ContentItem.
 
         Args:
@@ -168,6 +170,7 @@ class GitHubScraper(BaseScraper):
                 "event_type": event_type,
                 "repo": repo_name,
                 "category": category,
+                "source_group": source_group,
             }
         )
 
@@ -177,6 +180,7 @@ class GitHubScraper(BaseScraper):
         repo: str,
         since: datetime,
         category: Optional[str] = None,
+        source_group: str = "ai",
     ) -> List[ContentItem]:
         """Fetch releases for a repository.
 
@@ -185,6 +189,7 @@ class GitHubScraper(BaseScraper):
             repo: Repository name
             since: Only fetch releases after this time
             category: Optional category label for downstream grouping
+            source_group: Source group label (ai or finance)
 
         Returns:
             List[ContentItem]: Release content items
@@ -218,6 +223,7 @@ class GitHubScraper(BaseScraper):
                         "tag": release["tag_name"],
                         "prerelease": release.get("prerelease", False),
                         "category": category,
+                        "source_group": source_group,
                     }
                 )
                 items.append(item)

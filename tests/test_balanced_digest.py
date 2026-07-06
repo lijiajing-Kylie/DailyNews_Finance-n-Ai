@@ -16,6 +16,7 @@ from src.models import (
     SourcesConfig,
 )
 from src.orchestrator import HorizonOrchestrator
+from src.ai.summarizer import DailySummarizer
 
 
 def make_item(item_id: str, score: float, category: str | None) -> ContentItem:
@@ -155,7 +156,10 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
             },
         ),
     )
-    storage = SimpleNamespace()
+    storage = SimpleNamespace(
+        save_daily_summary=lambda *a, **kw: None,
+        load_subscribers=lambda: [],
+    )
     orchestrator = HorizonOrchestrator(config, storage)
     items = [
         make_item("ai", 9.0, "ai"),
@@ -182,12 +186,16 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
     async def enrich_important_items(input_items):  # type: ignore[no-untyped-def]
         enriched_ids.extend(item.id for item in input_items)
 
+    async def generate_summary(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return ""
+
     monkeypatch.setattr(orchestrator, "fetch_all_sources", fetch_all_sources)
     monkeypatch.setattr(orchestrator, "_analyze_content", analyze_content)
     monkeypatch.setattr(orchestrator, "merge_topic_duplicates", merge_topic_duplicates)
     monkeypatch.setattr(orchestrator, "_classify_topics", classify_topics)
     monkeypatch.setattr(orchestrator, "_expand_twitter_discussion", expand_twitter_discussion)
     monkeypatch.setattr(orchestrator, "_enrich_important_items", enrich_important_items)
+    monkeypatch.setattr(DailySummarizer, "generate_summary", generate_summary)
     monkeypatch.chdir(tmp_path)
 
     asyncio.run(orchestrator.run())

@@ -155,6 +155,7 @@ class GoogleNewsScraper(BaseScraper):
                 "gn_query": self.gn_config.query,
                 "source_name": source_name,
                 "category": self.gn_config.category,
+                "source_group": self.gn_config.source_group,
             }
 
             return ContentItem(

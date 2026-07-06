@@ -139,5 +139,6 @@ class HackerNewsScraper(BaseScraper):
                 "discussion_url": hn_discussion_url,
                 "comment_count": len(comments),
                 "category": self.config.get("category"),
+                "source_group": self.config.get("source_group", "ai"),
             }
         )

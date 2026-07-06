@@ -110,7 +110,7 @@ class AIConfig(BaseModel):
     throttle_sec: float = 0.0
     analysis_concurrency: int = 1
     enrichment_concurrency: int = 1
-    languages: List[str] = Field(default_factory=lambda: ["en"])
+    languages: List[str] = Field(default_factory=lambda: ["zh"])
     # Azure OpenAI specific; required when provider == AZURE
     azure_endpoint_env: Optional[str] = None
     api_version: Optional[str] = None
@@ -125,6 +125,7 @@ class GitHubSourceConfig(BaseModel):
     repo: Optional[str] = None
     enabled: bool = True
     category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class HackerNewsConfig(BaseModel):
@@ -134,6 +135,7 @@ class HackerNewsConfig(BaseModel):
     fetch_top_stories: int = 30
     min_score: int = 100
     category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class RSSSourceConfig(BaseModel):
@@ -143,6 +145,7 @@ class RSSSourceConfig(BaseModel):
     url: HttpUrl
     enabled: bool = True
     category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class RedditSubredditConfig(BaseModel):
@@ -157,6 +160,7 @@ class RedditSubredditConfig(BaseModel):
     fetch_limit: int = 25
     min_score: int = 10
     category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class RedditUserConfig(BaseModel):
@@ -183,6 +187,8 @@ class TelegramChannelConfig(BaseModel):
     channel: str  # channel username, e.g. "zaihuapd"
     enabled: bool = True
     fetch_limit: int = 20
+    category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class TelegramConfig(BaseModel):
@@ -229,6 +235,7 @@ class OpenBBWatchlist(BaseModel):
     provider: str = "yfinance"
     fetch_limit: int = 20
     category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class OpenBBConfig(BaseModel):
@@ -288,6 +295,7 @@ class GDELTConfig(BaseModel):
     language: Optional[str] = None  # sourcelang filter, e.g. "english"; None = no filter
     country: Optional[str] = None  # sourcecountry filter; None = no filter
     category: Optional[str] = None  # Horizon category label for downstream grouping
+    source_group: str = "ai"
 
 
 class GoogleNewsConfig(BaseModel):
@@ -305,6 +313,7 @@ class GoogleNewsConfig(BaseModel):
     ceid: Optional[str] = None  # when None scraper derives it as "{country}:{language}"
     max_results: int = 100  # cap ~100
     category: Optional[str] = None
+    source_group: str = "ai"
 
 
 class SourcesConfig(BaseModel):

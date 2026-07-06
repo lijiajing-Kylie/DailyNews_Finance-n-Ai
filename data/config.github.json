@@ -8,10 +8,7 @@
     "temperature": 0.3,
     "max_tokens": 8192,
     "throttle_sec": 1,
-    "languages": [
-      "zh",
-      "en"
-    ],
+    "languages": ["zh"],
     "analysis_concurrency": 5,
     "enrichment_concurrency": 5
   },
@@ -108,7 +105,14 @@
   },
   "filtering": {
     "ai_score_threshold": 8.0,
-    "time_window_hours": 24
+    "time_window_hours": 24,
+    "max_items": 10,
+    "category_groups": {
+      "ai": { "name": "AI 前沿", "limit": 3, "categories": ["ai"] },
+      "finance": { "name": "金融科技", "limit": 7, "categories": ["finance"] }
+    },
+    "default_group": "other",
+    "default_group_limit": 2
   },
   "webhook": {
     "enabled": true,

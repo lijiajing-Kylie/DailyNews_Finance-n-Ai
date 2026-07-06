@@ -832,7 +832,7 @@ class TestSendDailySummary:
         notifier = WebhookNotifier(config)
         summarizer = DailySummarizer()
         items = [_make_item()]
-        summary = "# Horizon Daily\nTest summary"
+        summary = "# Horizon 每日速递\n测试摘要"
 
         with patch.object(notifier, "notify", new_callable=AsyncMock) as mock_notify:
             _run_async(
@@ -841,19 +841,19 @@ class TestSendDailySummary:
                     important_items=items,
                     all_items_count=10,
                     date="2026-04-24",
-                    lang="en",
+                    lang="zh",
                     summarizer=summarizer,
                 )
             )
             mock_notify.assert_called_once()
-            vars = mock_notify.call_args[0][0]
-            assert vars["message_kind"] == "summary"
-            assert vars["message_title"] == "Horizon 2026-04-24 Daily"
-            assert vars["summary"] == summary
-            assert vars["important_items"] == 1
-            assert vars["all_items"] == 10
-            assert vars["result"] == "success"
-            assert vars["language"] == "en"
+            vars_ = mock_notify.call_args[0][0]
+            assert vars_["message_kind"] == "summary"
+            assert vars_["message_title"] == "Horizon 2026-04-24 日报"
+            assert vars_["summary"] == summary
+            assert vars_["important_items"] == 1
+            assert vars_["all_items"] == 10
+            assert vars_["result"] == "success"
+            assert vars_["language"] == "zh"
         del os.environ[_TEST_URL_ENV]
 
     def test_summary_delivery_zh_lang(self):
@@ -907,7 +907,7 @@ class TestSendDailySummary:
                     important_items=items,
                     all_items_count=20,
                     date="2026-04-24",
-                    lang="en",
+                    lang="zh",
                     summarizer=summarizer,
                 )
             )
@@ -917,7 +917,7 @@ class TestSendDailySummary:
             # First call: overview
             overview_vars = mock_notify.call_args_list[0][0][0]
             assert overview_vars["message_kind"] == "overview"
-            assert overview_vars["message_title"] == "Horizon 2026-04-24 Overview"
+            assert overview_vars["message_title"] == "Horizon 2026-04-24 总览"
 
             # Second call: first item
             item1_vars = mock_notify.call_args_list[1][0][0]
@@ -956,7 +956,7 @@ class TestSendDailySummary:
                     important_items=items,
                     all_items_count=20,
                     date="2026-04-24",
-                    lang="en",
+                    lang="zh",
                     summarizer=summarizer,
                 )
             )
@@ -974,7 +974,7 @@ class TestSendDailySummary:
             assert second_vars["item_index"] == 1
             assert second_vars["item_url"] == "https://example.com/test"
             assert third_vars["message_kind"] == "overview"
-            assert third_vars["message_title"] == "Horizon 2026-04-24 Overview"
+            assert third_vars["message_title"] == "Horizon 2026-04-24 总览"
         del os.environ[_TEST_URL_ENV]
 
     def test_feishu_collapsible_layout_builds_single_card_message(self):
@@ -999,7 +999,7 @@ class TestSendDailySummary:
             important_items=items,
             all_items_count=20,
             date="2026-04-24",
-            lang="en",
+            lang="zh",
             summarizer=summarizer,
         )
 
@@ -1011,7 +1011,7 @@ class TestSendDailySummary:
         assert body["card"]["schema"] == "2.0"
 
         elements = body["card"]["body"]["elements"]
-        assert "Expand the panels below" in elements[0]["content"]
+        assert "点击下方新闻面板" in elements[0]["content"]
         assert "Item A" not in elements[0]["content"]
         panels = [
             element for element in elements if element["tag"] == "collapsible_panel"
@@ -1019,7 +1019,7 @@ class TestSendDailySummary:
         assert len(panels) == 2
         assert panels[0]["expanded"] is False
         assert panels[0]["header"]["title"]["content"].startswith("1. Item A")
-        assert "Item 1/2" in panels[0]["elements"][0]["content"]
+        assert "第 1/2 条" in panels[0]["elements"][0]["content"]
         assert panels[1]["header"]["title"]["content"].startswith("2. Item B")
         del os.environ[_TEST_URL_ENV]
 

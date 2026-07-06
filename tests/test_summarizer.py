@@ -35,10 +35,10 @@ def test_generate_webhook_overview_lists_items_without_full_details():
         items,
         date="2026-04-25",
         total_fetched=10,
-        language="en",
+        language="zh",
     )
 
-    assert "Selected 2 important items from 10 fetched items" in result
+    assert "从 10 条内容中筛选出 2 条重要资讯。" in result
     assert "1. [Important Item 1](https://example.com/items/1)" in result
     assert "2. [Important Item 2](https://example.com/items/2)" in result
     assert "Summary for item 1." not in result
@@ -49,12 +49,12 @@ def test_generate_webhook_item_renders_single_item_detail():
 
     result = summarizer.generate_webhook_item(
         _make_item(1),
-        language="en",
+        language="zh",
         index=1,
         total=2,
     )
 
-    assert result.startswith("Item 1/2")
+    assert result.startswith("第 1/2 条")
     assert "## [Important Item 1](https://example.com/items/1)" in result
     assert "Summary for item 1." in result
     # assert "**Tags**: `#AI`, `#News`" in result  # TODO: re-enable when tags rendering is restored
@@ -67,12 +67,12 @@ def test_generate_webhook_item_includes_discussion_link_when_distinct():
 
     result = summarizer.generate_webhook_item(
         item,
-        language="en",
+        language="zh",
         index=1,
         total=1,
     )
 
-    assert "tester · Apr 25, 08:00 · [Discussion](https://news.ycombinator.com/item?id=1)" in result
+    assert "tester · 4月25日 08:00 · [社区讨论](https://news.ycombinator.com/item?id=1)" in result
 
 
 def test_generate_webhook_item_omits_discussion_link_when_same_as_item_url():

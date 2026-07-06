@@ -88,7 +88,7 @@ def configure_ai() -> Optional[AIConfig]:
 
     languages = Prompt.ask(
         "Output languages (comma-separated)",
-        default="zh,en",
+        default="zh",
     )
     lang_list = [l.strip() for l in languages.split(",") if l.strip()]
 

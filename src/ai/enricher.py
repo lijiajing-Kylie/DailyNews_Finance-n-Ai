@@ -183,30 +183,31 @@ class ContentEnricher:
             await self._translate_item(item)
             return
 
-        # Combine structured sub-fields into per-language detailed_summary
-        for lang in ("en", "zh"):
-            if result.get(f"title_{lang}"):
-                val = result[f"title_{lang}"]
-                item.metadata[f"title_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+        # Store Chinese fields from enrichment result
+        if result.get("title"):
+            val = result["title"]
+            item.metadata["title_zh"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
 
-            parts = []
-            for field in ("whats_new", "why_it_matters", "key_details"):
-                text = result.get(f"{field}_{lang}", "").strip()
-                if text:
-                    parts.append(text)
-            if parts:
-                item.metadata[f"detailed_summary_{lang}"] = " ".join(parts)
+        parts = []
+        for field in ("whats_new", "why_it_matters", "key_details"):
+            text = result.get(field, "").strip()
+            if text:
+                parts.append(text)
+        if parts:
+            item.metadata["detailed_summary_zh"] = " ".join(parts)
 
-            if result.get(f"community_discussion_{lang}"):
-                val = result[f"community_discussion_{lang}"]
-                item.metadata[f"community_discussion_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+        if result.get("community_discussion"):
+            val = result["community_discussion"]
+            item.metadata["community_discussion_zh"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
 
-        # Store bilingual scoring reason for downstream rendering
-        for lang in ("en", "zh"):
-            key = f"reason_{lang}"
-            if result.get(key):
-                val = result[key]
-                item.metadata[key] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+        # Store Chinese scoring reason for downstream rendering
+        if result.get("reason"):
+            val = result["reason"]
+            item.metadata["reason_zh"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+
+        # Backward-compatible fallback fields (Chinese as default)
+        item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_zh", "")
+        item.metadata["community_discussion"] = item.metadata.get("community_discussion_zh", "")
 
         # Store citation sources — only URLs that actually came from our search results
         if result.get("sources") and available_urls:
@@ -217,10 +218,6 @@ class ContentEnricher:
             ]
             if valid:
                 item.metadata["sources"] = valid
-
-        # Backward-compatible fallback fields (English as default)
-        item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_en", "")
-        item.metadata["community_discussion"] = item.metadata.get("community_discussion_en", "")
 
     async def _translate_item(self, item: ContentItem) -> None:
         """Lightweight translation fallback: when full enrichment fails, at least

@@ -20,9 +20,6 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "markdown>=3.10.2",
     "mcp>=1.0.0",
-    "fastapi>=0.128.8",
-    "uvicorn>=0.40.0",
-    "jinja2>=3.1.6",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +38,6 @@ twitter = [
 
 [project.scripts]
 horizon = "src.main:main"
-horizon-api = "src.api.server:main"
 horizon-mcp = "src.mcp.server:main"
 horizon-wizard = "src.setup.wizard:main"
 horizon-webhook = "src.services.webhook_cli:main"

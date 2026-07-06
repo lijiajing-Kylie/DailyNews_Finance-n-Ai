@@ -11,7 +11,6 @@ from rich.console import Console
 
 from .models import Config, ContentItem
 from .storage.manager import StorageManager
-from .storage.db import HorizonDB
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .scrapers.github import GitHubScraper
@@ -55,7 +54,6 @@ class HorizonOrchestrator:
         """
         self.config = config
         self.storage = storage
-        self.db = HorizonDB()
         self.console = Console()
         self.email_manager = EmailManager(config.email, console=self.console) if config.email else None
         self.webhook_notifier = (
@@ -81,9 +79,6 @@ class HorizonOrchestrator:
         ):
             self.console.print("📧 Checking for new email subscriptions...")
             self.email_manager.check_subscriptions(self.storage)
-
-        # Ensure topic seed data exists
-        self._seed_topics()
 
         try:
             # 1. Determine time window
@@ -165,9 +160,6 @@ class HorizonOrchestrator:
                 )
             important_items = deduped_items
 
-            # 5.51 Build unified source attribution for display
-            self._build_source_attribution(important_items)
-
             # 5.6 Optional second-stage Twitter reply expansion + targeted re-analysis
             await self._expand_twitter_discussion(important_items)
 
@@ -190,81 +182,68 @@ class HorizonOrchestrator:
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self._enrich_important_items(important_items)
 
-            # 6.5 Persist scored + enriched items to SQLite for API serving
+            # 7. Generate and save daily summary
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            saved = self.db.save_items(important_items, today, len(all_items))
-            self.console.print(f"💾 Persisted {saved} items to SQLite\n")
+            lang = "zh"
+            summarizer = DailySummarizer()
+            summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
 
-            # 6.6 Persist topic classifications to news_topics
-            topic_count = 0
-            for item in important_items:
-                topics_data = item.metadata.pop("_topics_classification", [])
-                if topics_data:
-                    topic_count += self.db.save_news_topics(item.id, topics_data)
-            if topic_count > 0:
-                self.console.print(f"🏷️ Saved {topic_count} topic associations\n")
+            # Save to data/summaries/
+            summary_path = self.storage.save_daily_summary(today, summary, language=lang)
+            self.console.print(f"💾 Saved summary to: {summary_path}\n")
 
-            # 7. Generate and save daily summaries for each configured language
-            for lang in self.config.ai.languages:
-                summarizer = DailySummarizer()
-                summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
+            # Copy to docs/ for GitHub Pages
+            try:
+                from pathlib import Path
 
-                # Save to data/summaries/
-                summary_path = self.storage.save_daily_summary(today, summary, language=lang)
-                self.console.print(f"💾 Saved {lang.upper()} summary to: {summary_path}\n")
+                post_filename = f"{today}-summary-{lang}.md"
+                posts_dir = Path("docs/_posts")
+                posts_dir.mkdir(parents=True, exist_ok=True)
 
-                # Copy to docs/ for GitHub Pages
-                try:
-                    from pathlib import Path
+                dest_path = posts_dir / post_filename
 
-                    post_filename = f"{today}-summary-{lang}.md"
-                    posts_dir = Path("docs/_posts")
-                    posts_dir.mkdir(parents=True, exist_ok=True)
+                # Add Jekyll front matter
+                front_matter = (
+                    "---\n"
+                    "layout: default\n"
+                    f"title: \"Horizon 每日速递 · AI & 金融: {today}\"\n"
+                    f"date: {today}\n"
+                    f"lang: {lang}\n"
+                    "---\n\n"
+                )
 
-                    dest_path = posts_dir / post_filename
+                # Strip leading H1 header to avoid duplication with Jekyll title
+                summary_content = summary
+                first_line = summary_content.strip().split("\n")[0]
+                if first_line.startswith("# "):
+                    parts = summary_content.split("\n", 1)
+                    if len(parts) > 1:
+                        summary_content = parts[1].strip()
 
-                    # Add Jekyll front matter
-                    front_matter = (
-                        "---\n"
-                        "layout: default\n"
-                        f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
-                        f"date: {today}\n"
-                        f"lang: {lang}\n"
-                        "---\n\n"
-                    )
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    f.write(front_matter + summary_content)
 
-                    # Strip leading H1 header to avoid duplication with Jekyll title
-                    summary_content = summary
-                    first_line = summary_content.strip().split("\n")[0]
-                    if first_line.startswith("# "):
-                        parts = summary_content.split("\n", 1)
-                        if len(parts) > 1:
-                            summary_content = parts[1].strip()
+                self.console.print(f"📄 Copied summary to GitHub Pages: {dest_path}\n")
+            except Exception as e:
+                self.console.print(f"[yellow]⚠️  Failed to copy summary to docs/: {e}[/yellow]\n")
 
-                    with open(dest_path, "w", encoding="utf-8") as f:
-                        f.write(front_matter + summary_content)
+            # Send email if configured
+            if self.email_manager and self.config.email and self.config.email.enabled:
+                self.console.print("📧 Sending email summary...")
+                subscribers = self.storage.load_subscribers()
+                subject = f"Horizon 每日速递 · AI & 金融 - {today}"
+                self.email_manager.send_daily_summary(summary, subject, subscribers)
 
-                    self.console.print(f"📄 Copied {lang.upper()} summary to GitHub Pages: {dest_path}\n")
-                except Exception as e:
-                    self.console.print(f"[yellow]⚠️  Failed to copy {lang.upper()} summary to docs/: {e}[/yellow]\n")
-
-                # Send email if configured
-                if self.email_manager and self.config.email and self.config.email.enabled:
-                    self.console.print(f"📧 Sending {lang.upper()} email summary...")
-                    subscribers = self.storage.load_subscribers()
-                    subject = f"Horizon Summary ({lang.upper()}) - {today}"
-                    self.email_manager.send_daily_summary(summary, subject, subscribers)
-
-                # Send webhook notification if configured
-                if self.webhook_notifier:
-                    await self.webhook_notifier.send_daily_summary(
-                        summary=summary,
-                        important_items=important_items,
-                        all_items_count=len(all_items),
-                        date=today,
-                        lang=lang,
-                        summarizer=summarizer,
-                    )
+            # Send webhook notification if configured
+            if self.webhook_notifier:
+                await self.webhook_notifier.send_daily_summary(
+                    summary=summary,
+                    important_items=important_items,
+                    all_items_count=len(all_items),
+                    date=today,
+                    lang=lang,
+                    summarizer=summarizer,
+                )
 
             self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
             usage = get_usage_snapshot()
@@ -432,68 +411,6 @@ class HorizonOrchestrator:
             return meta["domain"]
         return item.author or "unknown"
 
-    @staticmethod
-    def _build_source_attribution(items: List[ContentItem]) -> None:
-        """Build unified source attribution metadata for display.
-
-        Aggregates sources from URL dedup (``merged_sources``) and semantic
-        topic dedup (``topic_coverage``) plus the item's own source label
-        into ``metadata["source_attribution"]``:
-
-        .. code-block:: json
-
-          {
-            "count": 4,
-            "labels": ["OpenAI Blog", "TechCrunch", "Hacker News", "AI News"],
-            "detail": [{"label": "OpenAI Blog", "title": "...", "url": "..."}, ...]
-          }
-
-        Items with only one source are left unchanged.
-        """
-        for item in items:
-            # Collect all sources: self + URL-merged + topic-merged
-            detail: list[dict] = []
-            detail.append({
-                "label": HorizonOrchestrator._sub_source_label(item),
-                "title": item.title,
-                "url": str(item.url),
-            })
-            for src in item.metadata.pop("merged_sources", []) or []:
-                if isinstance(src, dict):
-                    detail.append({
-                        "label": src.get("label", src.get("source_type", "")),
-                        "title": item.title,
-                        "url": str(item.url),
-                    })
-            for src in item.metadata.pop("topic_coverage", []) or []:
-                detail.append({
-                    "label": src.get("label", src.get("source_type", "")),
-                    "title": src.get("title", ""),
-                    "url": src.get("url", ""),
-                })
-
-            # Deduplicate by label (same source may appear in both lists)
-            seen_labels: set[str] = set()
-            unique_detail: list[dict] = []
-            for d in detail:
-                if d["label"] not in seen_labels:
-                    seen_labels.add(d["label"])
-                    unique_detail.append(d)
-
-            if len(unique_detail) <= 1:
-                continue
-
-            # Truncate long titles for compact display
-            for d in unique_detail:
-                if len(d["title"]) > 60:
-                    d["title"] = d["title"][:57] + "..."
-
-            item.metadata["source_attribution"] = {
-                "count": len(unique_detail),
-                "labels": [d["label"] for d in unique_detail],
-                "detail": unique_detail,
-            }
-
     def merge_cross_source_duplicates(self, items: List[ContentItem]) -> List[ContentItem]:
         """Merge items that point to the same URL from different sources.
 
@@ -607,7 +524,6 @@ class HorizonOrchestrator:
             if primary_idx < 0 or primary_idx >= len(items):
                 continue
             primary = items[primary_idx]
-            primary_topic_sources: list[dict] = primary.metadata.setdefault("topic_coverage", [])
             for dup_idx in group[1:]:
                 if not isinstance(dup_idx, int) or dup_idx < 0 or dup_idx >= len(items):
                     continue
@@ -619,13 +535,6 @@ class HorizonOrchestrator:
                     if not primary.content or dup.content not in primary.content:
                         label = dup.source_type.value
                         primary.content = (primary.content or "") + f"\n\n--- From {label} ---\n{dup.content}"
-                # Record source attribution for the dropped item
-                primary_topic_sources.append({
-                    "source_type": dup.source_type.value,
-                    "label": self._sub_source_label(dup),
-                    "title": dup.title,
-                    "url": str(dup.url),
-                })
                 self.console.print(
                     f"   [dim]dedup: keep [{primary_idx}] {primary.title}[/dim]\n"
                     f"   [dim]       drop [{dup_idx}] {dup.title}[/dim]"
@@ -683,11 +592,14 @@ class HorizonOrchestrator:
 
         for item in sorted_items:
             category = item.metadata.get("category")
-            group_key = (
-                category_to_group.get(category, default_group)
-                if isinstance(category, str)
-                else default_group
-            )
+            source_group = item.metadata.get("source_group")
+            # First try fine-grained category, then source_group, then default
+            if isinstance(category, str) and category in category_to_group:
+                group_key = category_to_group[category]
+            elif isinstance(source_group, str) and source_group in category_to_group:
+                group_key = category_to_group[source_group]
+            else:
+                group_key = default_group
 
             if group_key in groups:
                 limit = groups[group_key].limit
@@ -848,12 +760,14 @@ class HorizonOrchestrator:
 
         self.console.print("🏷️ Classifying topics...")
 
-        # Load active topics from DB
-        topics_result = self.db.get_topics(grouped=False)
-        all_topics = topics_result.get("topics", [])
+        # Load active topics from seed data
+        all_topics = [
+            t for t in _build_seed_topics()
+            if t.get("is_active", 1) == 1
+        ]
 
         if not all_topics:
-            self.console.print("   [yellow]No topics in database, skipping classification[/yellow]")
+            self.console.print("   [yellow]No topics available, skipping classification[/yellow]")
             return
 
         ai_client = create_ai_client(self.config.ai)
@@ -900,20 +814,9 @@ class HorizonOrchestrator:
             f"   Classified {classified}/{len(items)} items\n"
         )
 
-    def _seed_topics(self) -> None:
-        """Ensure the topics table is populated with seed data.
-
-        Idempotent — running multiple times only upserts.
-        Errors are caught so a missing DB doesn't crash the pipeline.
-        """
-        try:
-            topics_data = _build_seed_topics()
-            count = self.db.seed_topics(topics_data)
-            self.console.print(f"🏷️ Ensured {count} topics in database")
-        except Exception as e:
-            self.console.print(
-                f"[yellow]⚠️  Could not seed topics: {e}[/yellow]"
-            )
+        # Clean up internal metadata not needed downstream
+        for item in items:
+            item.metadata.pop("_topics_classification", None)
 
 
 
@@ -925,7 +828,7 @@ class HorizonOrchestrator:
 def _build_seed_topics() -> list[dict]:
     """Build the complete list of seed topics.
 
-    Returns a list of dicts suitable for HorizonDB.seed_topics().
+    Returns a list of dicts suitable for topic classification.
     """
     return [
         # === 公司与模型 ===

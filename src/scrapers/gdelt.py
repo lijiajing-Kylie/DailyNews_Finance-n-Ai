@@ -149,6 +149,7 @@ class GDELTScraper(BaseScraper):
             "language": raw.get("language"),
             "query": self.gdelt_config.query,
             "category": self.gdelt_config.category,
+            "source_group": self.gdelt_config.source_group,
         }
 
         try:

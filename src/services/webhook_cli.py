@@ -162,7 +162,7 @@ def main() -> None:
     parser.add_argument(
         "--lang",
         default=None,
-        help="Language to test (en or zh). Defaults to the first language in config.",
+        help="Language to test. Defaults to the first language in config (zh).",
     )
     parser.add_argument(
         "--dry-run",
@@ -200,7 +200,7 @@ def main() -> None:
             )
             sys.exit(1)
 
-        lang = args.lang or (config.ai.languages[0] if config.ai.languages else "en")
+        lang = args.lang or (config.ai.languages[0] if config.ai.languages else "zh")
         asyncio.run(_run_test(config.webhook, lang, args.dry_run, args.delivery))
 
     except KeyboardInterrupt:

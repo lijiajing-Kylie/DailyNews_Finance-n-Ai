@@ -139,7 +139,7 @@ If relevant = false, score is irrelevant (set to 0).
 
 If relevant = true, score purely on IMPORTANCE and QUALITY. Do NOT inflate the score just because the topic is AI. Consider:
 
-**9-10: Must-read** — This will be discussed widely tomorrow. Major model releases, breakthrough papers, company-defining announcements. Strong community engagement (high upvotes, active discussion) confirms this level.
+**9-10: Must-read** — This will be discussed widely tomorrow. Major model releases, breakthrough papers, company-defining announcements. These are the stories you would forward to colleagues. Community engagement (high upvotes, active discussion), if available, is a positive signal but NOT required — judge by the inherent importance of the event itself. A major model launch or breakthrough discovery should reach 9 even without engagement data.
 
 **7-8: Very important** — Significant technical depth, novel approach, or insightful industry analysis. Worth your audience's time. Solid community discussion or authoritative source.
 
@@ -156,6 +156,7 @@ Key factors for scoring:
 - Actionability — can the reader do something with this information?
 
 A Reddit post with 20 upvotes and 5 comments about an interesting LLM technique should score 5-6, not 7-8. Reserve 7+ for content with genuine substance AND meaningful community traction.
+你必须使用 0-10的完整范围。如果这批新闻里有明显的重要性差异，请拉开分差，不要全挤在 7-8 分。
 """
 
 CONTENT_ANALYSIS_USER = """Analyze the following content and FIRST decide if it is relevant to AI/LLMs, THEN score its importance.

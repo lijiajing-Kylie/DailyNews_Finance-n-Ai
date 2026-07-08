@@ -368,7 +368,7 @@
     "ai_score_threshold": 7.0,
     "finance_score_threshold": 6.0,
     "time_window_hours": 24,
-    "max_items": null,
+    "max_items": 15,
     "category_groups": {
       "ai": {
         "name": "AI & Tech",

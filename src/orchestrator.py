@@ -260,14 +260,21 @@ class HorizonOrchestrator:
 
             # Send webhook notification if configured
             if self.webhook_notifier:
+                # Webhook gets its own leaner rendering: no leading H1 title
+                # (the request_body template supplies its own) and no
+                # community discussion blocks, to keep messages compact.
+                webhook_summary_full = await summarizer.generate_summary(
+                    important_items, today, len(all_items), language=lang,
+                    include_header=False, include_discussion=False,
+                )
                 # WeChat Work's markdown.content limit (4096) is a UTF-8 byte
                 # count, not a character count; CJK chars are 3 bytes each,
                 # so truncate by encoded bytes, not len(). Budget ~3500 bytes
                 # for the summary, leaving headroom for the header/metadata
                 # text wrapped around it in the request_body template.
-                webhook_summary = self._truncate_utf8(summary, 3500)
+                webhook_summary = self._truncate_utf8(webhook_summary_full, 3500)
                 self.console.print(
-                    f"   (webhook summary: {len(summary.encode('utf-8'))} bytes raw "
+                    f"   (webhook summary: {len(webhook_summary_full.encode('utf-8'))} bytes raw "
                     f"→ {len(webhook_summary.encode('utf-8'))} bytes after truncation)"
                 )
                 await self.webhook_notifier.send_daily_summary(

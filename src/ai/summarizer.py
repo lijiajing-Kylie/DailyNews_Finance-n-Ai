@@ -58,6 +58,8 @@ class DailySummarizer:
         date: str,
         total_fetched: int,
         language: str = "zh",
+        include_header: bool = True,
+        include_discussion: bool = True,
     ) -> str:
         """Generate daily summary in Markdown format.
 
@@ -69,6 +71,10 @@ class DailySummarizer:
             date: Date string (YYYY-MM-DD)
             total_fetched: Total number of items fetched before filtering
             language: Output language, either "en" or "zh"
+            include_header: Whether to include the leading "# {title} - {date}"
+                line (some delivery channels render their own title)
+            include_discussion: Whether to include the community discussion
+                block for each item
 
         Returns:
             str: Markdown formatted summary
@@ -76,7 +82,9 @@ class DailySummarizer:
         labels = LABELS["zh"]
 
         if not items:
-            return self._generate_empty_summary(date, total_fetched, labels)
+            return self._generate_empty_summary(
+                date, total_fetched, labels, include_header=include_header
+            )
 
         # Partition items by ai_category
         ai_items = [item for item in items if item.ai_category == "ai"]
@@ -90,8 +98,8 @@ class DailySummarizer:
         stats_line = " | ".join(stats_parts)
 
         header = (
-            f"# {labels['header']} - {date}\n\n"
-            f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n"
+            (f"# {labels['header']} - {date}\n\n" if include_header else "")
+            + f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n"
             f"> {stats_line}\n\n"
             "---\n\n"
         )
@@ -130,7 +138,12 @@ class DailySummarizer:
             parts.append(f"## {cat_label}\n\n")
             for item in cat_items:
                 global_idx += 1
-                parts.append(self._format_item(item, labels, language, global_idx))
+                parts.append(
+                    self._format_item(
+                        item, labels, language, global_idx,
+                        include_discussion=include_discussion,
+                    )
+                )
 
         _append_items(ai_items, CATEGORY_LABELS["ai"])
         _append_items(finance_items, CATEGORY_LABELS["finance"])
@@ -177,7 +190,14 @@ class DailySummarizer:
         prefix = f"第 {index}/{total} 条\n\n"
         return prefix + self._format_item(item, labels, language, index).rstrip("-\n ")
 
-    def _format_item(self, item: ContentItem, labels: dict, language: str, index: int) -> str:
+    def _format_item(
+        self,
+        item: ContentItem,
+        labels: dict,
+        language: str,
+        index: int,
+        include_discussion: bool = True,
+    ) -> str:
         """Format a single ContentItem into Markdown."""
         _title = item.metadata.get("title_zh") or item.title
         title = str(_title).replace("[", "(").replace("]", ")")
@@ -236,7 +256,7 @@ class DailySummarizer:
         if reason:
             lines.insert(4, f"> **评分理由**: {reason}")
 
-        if discussion:
+        if discussion and include_discussion:
             lines.append("")
             lines.append(f"**{labels['discussion']}**: {discussion}")
 
@@ -245,10 +265,12 @@ class DailySummarizer:
 
         return "\n".join(lines) + "\n\n"
 
-    def _generate_empty_summary(self, date: str, total_fetched: int, labels: dict) -> str:
+    def _generate_empty_summary(
+        self, date: str, total_fetched: int, labels: dict, include_header: bool = True
+    ) -> str:
         """Generate summary when no high-scoring items were found."""
         return (
-            f"# {labels['header']} - {date}\n\n"
-            f"> {labels['empty_analyzed'].format(total=total_fetched)}\n\n"
+            (f"# {labels['header']} - {date}\n\n" if include_header else "")
+            + f"> {labels['empty_analyzed'].format(total=total_fetched)}\n\n"
             + labels["empty_body"]
         )

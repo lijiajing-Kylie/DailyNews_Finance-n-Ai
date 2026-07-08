@@ -16,6 +16,8 @@ from ..models import ContentItem, SourceType, RSSSourceConfig
 
 logger = logging.getLogger(__name__)
 
+USER_AGENT = "Mozilla/5.0 (compatible; Horizon/1.0; +https://github.com/thysrael/horizon)"
+
 
 class RSSScraper(BaseScraper):
     """Scraper for RSS/Atom feeds."""
@@ -74,7 +76,9 @@ class RSSScraper(BaseScraper):
             )
 
             # Fetch feed content
-            response = await self.client.get(feed_url, follow_redirects=True)
+            response = await self.client.get(
+                feed_url, headers={"User-Agent": USER_AGENT}, follow_redirects=True
+            )
             response.raise_for_status()
 
             # Parse feed

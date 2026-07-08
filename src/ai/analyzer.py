@@ -43,6 +43,7 @@ class ContentAnalyzer:
                     await self._analyze_item(item)
                 except Exception as e:
                     print(f"Error analyzing item {item.id}: {e}")
+                    item.ai_category = None
                     item.ai_relevant = False
                     item.ai_score = 0.0
                     item.ai_reason = "Analysis failed"
@@ -106,6 +107,7 @@ class ContentAnalyzer:
         result = parse_json_response(response)
         if result is None:
             print(f"Warning: could not parse analysis response for {item.id}, using defaults")
+            item.ai_category = None
             item.ai_relevant = False
             item.ai_score = 0.0
             item.ai_reason = "Analysis response parse failed"
@@ -113,8 +115,19 @@ class ContentAnalyzer:
             item.ai_tags = []
             return
 
-        # Update item with analysis results
-        item.ai_relevant = result.get("relevant", False)
+        # Parse category (new) — fall back to deriving from legacy "relevant" field
+        category = result.get("category")
+        if category is not None and isinstance(category, str) and category in ("ai", "finance"):
+            item.ai_category = category
+        elif category is None and result.get("relevant") is True:
+            # Legacy fallback: old prompt returned "relevant" instead of "category"
+            # Default to "ai" for backward compatibility with old AI analysis results
+            item.ai_category = "ai"
+        else:
+            item.ai_category = None
+
+        # Derive ai_relevant from ai_category for backward compatibility
+        item.ai_relevant = item.ai_category is not None
         item.ai_score = float(result.get("score", 0))
         item.ai_reason = result.get("reason", "")
         item.ai_summary = result.get("summary", item.title)

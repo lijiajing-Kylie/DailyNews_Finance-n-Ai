@@ -48,25 +48,43 @@
         "name": "Simon Willison",
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "ai-tools"
+        "category": "ai"
       },
       {
         "name": "GitHub Trending - Daily",
         "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
         "enabled": true,
-        "category": "github-trending"
+        "category": "other"
       },
       {
         "name": "Semianalysis",
         "url": "https://newsletter.semianalysis.com/feed",
         "enabled": true,
-        "category": "semiconductors"
+        "category": "ai"
       },
       {
         "name": "LWN.net",
         "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
         "enabled": true,
-        "category": "linux-kernel"
+        "category": "other"
+      },
+      {
+        "name": "investing",
+        "url": "https://www.cnbc.com/id/15839069/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance"
+      },
+      {
+        "name": "market_insider",
+        "url": "https://www.cnbc.com/id/20409666/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance"
+      },
+      {
+        "name": "trader_talk",
+        "url": "https://www.cnbc.com/id/20398120/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance"
       }
     ],
     "reddit": {
@@ -105,11 +123,13 @@
   },
   "filtering": {
     "ai_score_threshold": 8.0,
+    "finance_score_threshold": 6.0,
     "time_window_hours": 24,
     "max_items": 10,
     "category_groups": {
       "ai": { "name": "AI 前沿", "limit": 3, "categories": ["ai"] },
-      "finance": { "name": "金融科技", "limit": 7, "categories": ["finance"] }
+      "finance": { "name": "金融科技", "limit": 7, "categories": ["finance"] },
+      "other": { "name": "其他", "limit": 2, "categories": ["other"] }
     },
     "default_group": "other",
     "default_group_limit": 2

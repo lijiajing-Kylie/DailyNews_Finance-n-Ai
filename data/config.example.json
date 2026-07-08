@@ -45,13 +45,13 @@
         "name": "Simon Willison",
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "ai-tools"
+        "category": "ai"
       },
       {
         "name": "LWN.net (subscriber full-text)",
         "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
         "enabled": false,
-        "category": "linux"
+        "category": "other"
       }
     ],
     "reddit": {
@@ -95,7 +95,7 @@
           "enabled": true,
           "provider": "yfinance",
           "fetch_limit": 20,
-          "category": "equities",
+          "category": "finance",
           "symbols": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
         }
       ]
@@ -116,7 +116,7 @@
       "timespan": null,
       "language": null,
       "country": null,
-      "category": "news"
+      "category": "ai"
     },
     "google_news": {
       "enabled": false,
@@ -125,14 +125,31 @@
       "country": "US",
       "ceid": null,
       "max_results": 100,
-      "category": "news"
+      "category": "ai"
     }
   },
   "filtering": {
     "ai_score_threshold": 6.0,
+    "finance_score_threshold": 5.0,
     "time_window_hours": 24,
     "max_items": null,
-    "category_groups": {},
+    "category_groups": {
+      "ai": {
+        "name": "AI & Tech",
+        "limit": 15,
+        "categories": ["ai"]
+      },
+      "finance": {
+        "name": "Finance & Markets",
+        "limit": 10,
+        "categories": ["finance"]
+      },
+      "other": {
+        "name": "Other",
+        "limit": 2,
+        "categories": ["other"]
+      }
+    },
     "default_group": "other",
     "default_group_limit": null
   },
@@ -161,13 +178,6 @@
         },
         "body": {
           "elements": [
-            {
-              "tag": "markdown",
-              "content": "Horizon生成结果: #{result}\nHorizon日报重要资讯数量: #{important_items}/#{all_items}"
-            },
-            {
-              "tag": "hr"
-            },
             {
               "tag": "markdown",
               "content": "#{summary}"

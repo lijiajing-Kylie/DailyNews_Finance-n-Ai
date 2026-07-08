@@ -70,14 +70,15 @@ class TelegramScraper(BaseScraper):
         messages = soup.select("div.tgme_widget_message[data-post]")
 
         items = []
+        category = self._resolve_category(cfg.category, f"telegram:{cfg.channel}")
         for msg in messages[-cfg.fetch_limit:]:
-            item = self._parse_message(msg, cfg.channel, since, cfg.source_group, cfg.category)
+            item = self._parse_message(msg, cfg.channel, since, category)
             if item:
                 items.append(item)
         return items
 
     def _parse_message(
-        self, msg_el, channel: str, since: datetime, source_group: str = "ai", category: Optional[str] = None
+        self, msg_el, channel: str, since: datetime, category: Optional[str] = None
     ) -> Optional[ContentItem]:
         # Extract message ID
         data_post = msg_el.get("data-post", "")
@@ -131,7 +132,11 @@ class TelegramScraper(BaseScraper):
             content=text,
             author=channel,
             published_at=published_at,
-            metadata={"msg_url": msg_url, "channel": channel, "source_group": source_group, "category": category},
+            metadata={
+                "msg_url": msg_url,
+                "channel": channel,
+                "category": category,
+            },
         )
 
     @staticmethod

@@ -19,15 +19,37 @@ from src.orchestrator import HorizonOrchestrator
 from src.ai.summarizer import DailySummarizer
 
 
-def make_item(item_id: str, score: float, category: str | None) -> ContentItem:
+_UNSET = object()
+
+
+def make_item(
+    item_id: str,
+    score: float,
+    category: str | None,
+    ai_category: str | None = _UNSET,
+) -> ContentItem:
     metadata = {"category": category} if category is not None else {}
+    # Derive ai_category from metadata category if not explicitly provided
+    if ai_category is _UNSET:
+        if isinstance(category, str):
+            if category in ("finance", "equities", "stocks", "macro"):
+                ai_category = "finance"
+            elif category in ("ai", "ai-tools", "ml"):
+                ai_category = "ai"
+            # else: leave as None — unknown categories don't auto-derive
+        else:
+            ai_category = "ai"  # default for backward compat with tests that don't set category
+    # Resolve sentinel to actual value
+    if ai_category is _UNSET:
+        ai_category = None
     return ContentItem(
         id=item_id,
         source_type=SourceType.RSS,
         title=item_id,
         url=f"https://example.com/{item_id}",
         published_at=datetime.now(timezone.utc),
-        ai_relevant=True,
+        ai_category=ai_category,
+        ai_relevant=ai_category is not None,
         ai_score=score,
         metadata=metadata,
     )
@@ -201,3 +223,121 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
     asyncio.run(orchestrator.run())
 
     assert enriched_ids == ["ai"]
+
+
+def test_ai_category_routes_items_to_groups() -> None:
+    """Items should be routed to groups based on ai_category when metadata category is absent."""
+    filtering = FilteringConfig(
+        category_groups={
+            "ai": CategoryGroupConfig(limit=2, categories=["ai"]),
+            "finance": CategoryGroupConfig(limit=1, categories=["finance"]),
+        },
+    )
+    items = [
+        make_item("ai-1", 9.0, None, ai_category="ai"),
+        make_item("fin-1", 8.5, None, ai_category="finance"),
+        make_item("ai-2", 8.0, None, ai_category="ai"),
+        make_item("fin-2", 7.5, None, ai_category="finance"),
+        make_item("ai-3", 7.0, None, ai_category="ai"),
+    ]
+
+    result = make_orchestrator(filtering).apply_balanced_digest(items)
+
+    assert [item.id for item in result.items] == ["ai-1", "fin-1", "ai-2"]
+    assert result.group_counts == {"ai": 2, "finance": 1}
+
+
+def test_metadata_category_takes_priority_over_ai_category() -> None:
+    """Source-level metadata category should override ai_category in group matching."""
+    filtering = FilteringConfig(
+        category_groups={
+            "ai": CategoryGroupConfig(limit=2, categories=["ai"]),
+            "finance": CategoryGroupConfig(limit=2, categories=["finance"]),
+            "custom": CategoryGroupConfig(limit=1, categories=["custom-ai"]),
+        },
+    )
+    items = [
+        # metadata category "custom-ai" routes to "custom" group, despite ai_category="ai"
+        make_item("custom", 9.0, "custom-ai", ai_category="ai"),
+        make_item("ai-1", 8.5, None, ai_category="ai"),
+        make_item("fin-1", 8.0, None, ai_category="finance"),
+    ]
+
+    result = make_orchestrator(filtering).apply_balanced_digest(items)
+
+    assert [item.id for item in result.items] == ["custom", "ai-1", "fin-1"]
+    assert result.group_counts == {"custom": 1, "ai": 1, "finance": 1}
+
+
+def test_ai_category_none_does_not_match_groups() -> None:
+    """Items with ai_category=None should fall through to default_group."""
+    filtering = FilteringConfig(
+        category_groups={
+            "ai": CategoryGroupConfig(limit=2, categories=["ai"]),
+        },
+        default_group_limit=1,
+    )
+    items = [
+        make_item("ai-item", 9.0, None, ai_category="ai"),
+        make_item("none-item", 8.0, None, ai_category=None),
+    ]
+
+    result = make_orchestrator(filtering).apply_balanced_digest(items)
+
+    assert [item.id for item in result.items] == ["ai-item", "none-item"]
+    assert result.group_counts == {"ai": 1, "other": 1}
+
+
+def test_threshold_for_returns_correct_per_category_values() -> None:
+    """FilteringConfig.threshold_for() should return per-category thresholds."""
+    from src.models import FilteringConfig
+
+    # finance_score_threshold explicitly set
+    cfg = FilteringConfig(
+        ai_score_threshold=7.0,
+        finance_score_threshold=6.0,
+    )
+    assert cfg.threshold_for("ai") == 7.0
+    assert cfg.threshold_for("finance") == 6.0
+    assert cfg.threshold_for(None) == 7.0  # falls back to ai_score_threshold
+
+    # finance_score_threshold not set — falls back to ai_score_threshold
+    cfg2 = FilteringConfig(ai_score_threshold=8.0)
+    assert cfg2.threshold_for("ai") == 8.0
+    assert cfg2.threshold_for("finance") == 8.0
+    assert cfg2.threshold_for("other") == 8.0
+
+
+def test_orchestrator_applies_per_category_thresholds() -> None:
+    """Items should only pass if their score meets their category's own threshold.
+
+    Note: ai_category=None items are already filtered out by the relevance gate
+    (step 4.5) before the threshold step. This test focuses on the threshold logic
+    for items that survived relevance filtering.
+    """
+    filtering = FilteringConfig(
+        ai_score_threshold=7.0,
+        finance_score_threshold=6.0,
+    )
+    # Only items that passed the relevance gate (ai_category is not None) reach here
+    relevant_items = [
+        make_item("ai-good", 8.0, None, ai_category="ai"),
+        make_item("ai-bad", 6.5, None, ai_category="ai"),
+        make_item("fin-good", 6.5, None, ai_category="finance"),
+        make_item("fin-bad", 5.0, None, ai_category="finance"),
+    ]
+
+    # Simulate the threshold filtering step (after relevance gate)
+    above: list[str] = []
+    below: list[str] = []
+    for item in relevant_items:
+        if item.ai_score is None:
+            continue
+        effective = filtering.threshold_for(item.ai_category)
+        if item.ai_score >= effective:
+            above.append(item.id)
+        else:
+            below.append(item.id)
+
+    assert set(above) == {"ai-good", "fin-good"}
+    assert set(below) == {"ai-bad", "fin-bad"}

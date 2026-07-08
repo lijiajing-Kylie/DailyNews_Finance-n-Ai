@@ -105,30 +105,38 @@ class HorizonOrchestrator:
             analyzed_items = await self._analyze_content(merged_items)
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
 
-            # 4.5 Filter by AI relevance (binary gate — only AI/LLM content passes)
+            # 4.5 Filter by AI category (only AI + Finance content passes)
             relevant_items = [
                 item for item in analyzed_items
-                if item.ai_relevant is True
+                if item.ai_category is not None
             ]
             skipped_relevance = len(analyzed_items) - len(relevant_items)
             if skipped_relevance > 0:
+                ai_count = sum(1 for item in relevant_items if item.ai_category == "ai")
+                finance_count = sum(1 for item in relevant_items if item.ai_category == "finance")
                 self.console.print(
-                    f"🎯 {len(relevant_items)} items are AI-relevant "
-                    f"({skipped_relevance} non-relevant items dropped)\n"
+                    f"🎯 {len(relevant_items)} items relevant "
+                    f"(AI: {ai_count}, Finance: {finance_count}) "
+                    f"— {skipped_relevance} non-relevant items dropped\n"
                 )
 
-            # 5. Filter by score threshold
-            threshold = self.config.filtering.ai_score_threshold
-            max_items = self.config.filtering.max_items
+            # 5. Filter by score threshold (per-category)
+            filtering = self.config.filtering
+            ai_threshold = filtering.ai_score_threshold
+            finance_threshold = filtering.threshold_for("finance")
+            max_items = filtering.max_items
 
-            above_threshold = [
-                item for item in relevant_items
-                if item.ai_score and item.ai_score >= threshold
-            ]
-            below_threshold = [
-                item for item in relevant_items
-                if item.ai_score and item.ai_score < threshold
-            ]
+            above_threshold: List[ContentItem] = []
+            below_threshold: List[ContentItem] = []
+            for item in relevant_items:
+                if item.ai_score is None:
+                    continue
+                effective = filtering.threshold_for(item.ai_category)
+                if item.ai_score >= effective:
+                    above_threshold.append(item)
+                else:
+                    below_threshold.append(item)
+
             # Sort both groups descending by score
             above_threshold.sort(key=lambda x: x.ai_score or 0, reverse=True)
             below_threshold.sort(key=lambda x: x.ai_score or 0, reverse=True)
@@ -141,14 +149,20 @@ class HorizonOrchestrator:
                 important_items = important_items + below_threshold[:needed]
                 # Re-sort merged list
                 important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)
+                ai_above = sum(1 for it in above_threshold if it.ai_category == "ai")
+                fin_above = sum(1 for it in above_threshold if it.ai_category == "finance")
                 self.console.print(
-                    f"⭐️ {len(above_threshold)} items scored ≥ {threshold}, "
+                    f"⭐️ {len(above_threshold)} items above threshold "
+                    f"(AI≥{ai_threshold}: {ai_above}, Finance≥{finance_threshold}: {fin_above}), "
                     f"backfilled {min(needed, len(below_threshold))} below-threshold "
                     f"→ {len(important_items)} total (max_items={max_items})\n"
                 )
             else:
+                ai_above = sum(1 for it in important_items if it.ai_category == "ai")
+                fin_above = sum(1 for it in important_items if it.ai_category == "finance")
                 self.console.print(
-                    f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
+                    f"⭐️ {len(important_items)} items above threshold "
+                    f"(AI≥{ai_threshold}: {ai_above}, Finance≥{finance_threshold}: {fin_above})\n"
                 )
 
             # 5.5 Semantic deduplication: drop items covering the same topic
@@ -227,6 +241,16 @@ class HorizonOrchestrator:
             except Exception as e:
                 self.console.print(f"[yellow]⚠️  Failed to copy summary to docs/: {e}[/yellow]\n")
 
+            # Print final digest lineup before pushing, to confirm grouping is correct
+            self.console.print("📋 Final digest items (category | source | score | title):")
+            for item in important_items:
+                category = item.metadata.get("category", "other")
+                self.console.print(
+                    f"   • [{category}] {item.source_type.value} | "
+                    f"score={item.ai_score} | {item.title}"
+                )
+            self.console.print("")
+
             # Send email if configured
             if self.email_manager and self.config.email and self.config.email.enabled:
                 self.console.print("📧 Sending email summary...")
@@ -236,8 +260,18 @@ class HorizonOrchestrator:
 
             # Send webhook notification if configured
             if self.webhook_notifier:
+                # WeChat Work's markdown.content limit (4096) is a UTF-8 byte
+                # count, not a character count; CJK chars are 3 bytes each,
+                # so truncate by encoded bytes, not len(). Budget ~3500 bytes
+                # for the summary, leaving headroom for the header/metadata
+                # text wrapped around it in the request_body template.
+                webhook_summary = self._truncate_utf8(summary, 3500)
+                self.console.print(
+                    f"   (webhook summary: {len(summary.encode('utf-8'))} bytes raw "
+                    f"→ {len(webhook_summary.encode('utf-8'))} bytes after truncation)"
+                )
                 await self.webhook_notifier.send_daily_summary(
-                    summary=summary,
+                    summary=webhook_summary,
                     important_items=important_items,
                     all_items_count=len(all_items),
                     date=today,
@@ -272,6 +306,19 @@ class HorizonOrchestrator:
                 )
 
             raise
+
+    @staticmethod
+    def _truncate_utf8(text: str, max_bytes: int) -> str:
+        """Truncate text to at most `max_bytes` when UTF-8 encoded.
+
+        Truncating by character count under-counts for CJK text, where each
+        character is 3 bytes in UTF-8. Cuts on a character boundary so the
+        result stays valid UTF-8.
+        """
+        encoded = text.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return text
+        return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours:
@@ -592,12 +639,12 @@ class HorizonOrchestrator:
 
         for item in sorted_items:
             category = item.metadata.get("category")
-            source_group = item.metadata.get("source_group")
-            # First try fine-grained category, then source_group, then default
+            ai_category = item.ai_category
+            # Priority: source-level category > AI-assigned category > default
             if isinstance(category, str) and category in category_to_group:
                 group_key = category_to_group[category]
-            elif isinstance(source_group, str) and source_group in category_to_group:
-                group_key = category_to_group[source_group]
+            elif isinstance(ai_category, str) and ai_category in category_to_group:
+                group_key = category_to_group[ai_category]
             else:
                 group_key = default_group
 

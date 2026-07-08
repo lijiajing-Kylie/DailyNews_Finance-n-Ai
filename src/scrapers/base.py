@@ -1,11 +1,14 @@
 """Base scraper interface."""
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 import httpx
 
 from ..models import ContentItem
+
+logger = logging.getLogger(__name__)
 
 
 class BaseScraper(ABC):
@@ -20,6 +23,24 @@ class BaseScraper(ABC):
         """
         self.config = config
         self.client = http_client
+
+    def _resolve_category(self, category: Optional[str], source_label: str) -> str:
+        """Return the source's category, defaulting to "other" with a warning.
+
+        Args:
+            category: The category configured on the source, if any
+            source_label: Human-readable label for the source (used in the warning)
+
+        Returns:
+            str: The configured category, or "other" when unset
+        """
+        if not category:
+            logger.warning(
+                "Source '%s' has no category configured; defaulting to 'other'",
+                source_label,
+            )
+            return "other"
+        return category
 
     @abstractmethod
     async def fetch(self, since: datetime) -> List[ContentItem]:

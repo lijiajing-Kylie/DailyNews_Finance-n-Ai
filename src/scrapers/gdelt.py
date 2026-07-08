@@ -108,9 +108,10 @@ class GDELTScraper(BaseScraper):
             if not articles:
                 return []
 
+            category = self._resolve_category(self.gdelt_config.category, f"gdelt:{self.gdelt_config.query}")
             items: List[ContentItem] = []
             for raw in articles:
-                item = self._raw_to_item(raw)
+                item = self._raw_to_item(raw, category)
                 if item is not None:
                     items.append(item)
             return items
@@ -122,7 +123,7 @@ class GDELTScraper(BaseScraper):
             logger.warning("Error parsing GDELT response: %s", exc)
             return []
 
-    def _raw_to_item(self, raw: Any) -> Optional[ContentItem]:
+    def _raw_to_item(self, raw: Any, category: str) -> Optional[ContentItem]:
         """Map one GDELT article record into a ContentItem.
 
         Returns None when the record has no URL/title or an unparseable
@@ -148,8 +149,7 @@ class GDELTScraper(BaseScraper):
             "sourcecountry": raw.get("sourcecountry"),
             "language": raw.get("language"),
             "query": self.gdelt_config.query,
-            "category": self.gdelt_config.category,
-            "source_group": self.gdelt_config.source_group,
+            "category": category,
         }
 
         try:

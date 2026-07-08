@@ -94,11 +94,12 @@ class GoogleNewsScraper(BaseScraper):
 
             feed = feedparser.parse(response.text)
 
+            category = self._resolve_category(self.gn_config.category, f"google_news:{self.gn_config.query}")
             items: List[ContentItem] = []
             for entry in feed.entries:
                 if len(items) >= self.gn_config.max_results:
                     break
-                item = self._entry_to_item(entry)
+                item = self._entry_to_item(entry, category)
                 if item is not None:
                     items.append(item)
             return items
@@ -126,7 +127,7 @@ class GoogleNewsScraper(BaseScraper):
             return f"when:{hours}h"
         return f"after:{since_utc.strftime('%Y-%m-%d')}"
 
-    def _entry_to_item(self, entry: Any) -> Optional[ContentItem]:
+    def _entry_to_item(self, entry: Any, category: str) -> Optional[ContentItem]:
         """Map one Google News RSS entry into a ContentItem.
 
         Returns None when the entry has no title/link or an unparseable
@@ -154,8 +155,7 @@ class GoogleNewsScraper(BaseScraper):
             meta = {
                 "gn_query": self.gn_config.query,
                 "source_name": source_name,
-                "category": self.gn_config.category,
-                "source_group": self.gn_config.source_group,
+                "category": category,
             }
 
             return ContentItem(

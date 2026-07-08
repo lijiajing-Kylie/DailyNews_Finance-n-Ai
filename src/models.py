@@ -2,8 +2,29 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, HttpUrl, Field, field_validator
+from typing import Annotated, Optional, List, Dict, Any, Union
+from pydantic import AfterValidator, BaseModel, HttpUrl, Field, field_validator
+
+SOURCE_CATEGORIES = {"ai", "finance", "other"}
+
+
+def _validate_source_category(v: Optional[str]) -> Optional[str]:
+    """Normalize a source's category label.
+
+    Empty string means "unset" (same as None); a source scraper defaults
+    unset categories to "other" at fetch time and logs a warning. Any
+    non-empty value must be one of the three supported categories.
+    """
+    if v is None or v == "":
+        return None
+    if v not in SOURCE_CATEGORIES:
+        raise ValueError(
+            f"category must be one of {sorted(SOURCE_CATEGORIES)}, got '{v}'"
+        )
+    return v
+
+
+SourceCategory = Annotated[Optional[str], AfterValidator(_validate_source_category)]
 
 
 class SourceType(str, Enum):
@@ -36,6 +57,7 @@ class ContentItem(BaseModel):
 
     # AI analysis results
     ai_relevant: Optional[bool] = None  # True = relevant to AI/LLMs, False = not relevant
+    ai_category: Optional[str] = None  # "ai" | "finance" | None (not relevant to either)
     ai_score: Optional[float] = None  # 0-10 importance score
     ai_reason: Optional[str] = None
     ai_summary: Optional[str] = None
@@ -124,8 +146,7 @@ class GitHubSourceConfig(BaseModel):
     owner: Optional[str] = None
     repo: Optional[str] = None
     enabled: bool = True
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class HackerNewsConfig(BaseModel):
@@ -134,8 +155,7 @@ class HackerNewsConfig(BaseModel):
     enabled: bool = True
     fetch_top_stories: int = 30
     min_score: int = 100
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class RSSSourceConfig(BaseModel):
@@ -144,8 +164,7 @@ class RSSSourceConfig(BaseModel):
     name: str
     url: HttpUrl
     enabled: bool = True
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class RedditSubredditConfig(BaseModel):
@@ -159,8 +178,7 @@ class RedditSubredditConfig(BaseModel):
     )
     fetch_limit: int = 25
     min_score: int = 10
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class RedditUserConfig(BaseModel):
@@ -187,8 +205,7 @@ class TelegramChannelConfig(BaseModel):
     channel: str  # channel username, e.g. "zaihuapd"
     enabled: bool = True
     fetch_limit: int = 20
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class TelegramConfig(BaseModel):
@@ -234,8 +251,7 @@ class OpenBBWatchlist(BaseModel):
     enabled: bool = True
     provider: str = "yfinance"
     fetch_limit: int = 20
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class OpenBBConfig(BaseModel):
@@ -294,8 +310,7 @@ class GDELTConfig(BaseModel):
     timespan: Optional[str] = None  # e.g. "24h"; overrides since-derived window
     language: Optional[str] = None  # sourcelang filter, e.g. "english"; None = no filter
     country: Optional[str] = None  # sourcecountry filter; None = no filter
-    category: Optional[str] = None  # Horizon category label for downstream grouping
-    source_group: str = "ai"
+    category: SourceCategory = None  # Horizon category label for downstream grouping
 
 
 class GoogleNewsConfig(BaseModel):
@@ -312,8 +327,7 @@ class GoogleNewsConfig(BaseModel):
     country: str = "US"  # gl
     ceid: Optional[str] = None  # when None scraper derives it as "{country}:{language}"
     max_results: int = 100  # cap ~100
-    category: Optional[str] = None
-    source_group: str = "ai"
+    category: SourceCategory = None
 
 
 class SourcesConfig(BaseModel):
@@ -428,11 +442,21 @@ class FilteringConfig(BaseModel):
     """Content filtering configuration."""
 
     ai_score_threshold: float = 7.0
+    finance_score_threshold: Optional[float] = Field(
+        default=None, ge=0.0, le=10.0,
+        description="Score threshold for finance-category items; falls back to ai_score_threshold when unset",
+    )
     time_window_hours: int = 24
     max_items: Optional[int] = Field(default=None, gt=0)
     category_groups: Dict[str, CategoryGroupConfig] = Field(default_factory=dict)
     default_group: str = "other"
     default_group_limit: Optional[int] = Field(default=None, gt=0)
+
+    def threshold_for(self, category: str | None) -> float:
+        """Return the effective score threshold for a given ai_category."""
+        if category == "finance":
+            return self.finance_score_threshold if self.finance_score_threshold is not None else self.ai_score_threshold
+        return self.ai_score_threshold
 
 
 class Config(BaseModel):

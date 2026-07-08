@@ -62,10 +62,11 @@ class HackerNewsScraper(BaseScraper):
             # Fetch all comments concurrently
             all_comments = await asyncio.gather(*comment_tasks, return_exceptions=True)
 
+            category = self._resolve_category(self.config.get("category"), "hackernews")
             for story, comments in zip(valid_stories, all_comments):
                 if isinstance(comments, Exception):
                     comments = []
-                item = self._parse_story(story, comments)
+                item = self._parse_story(story, comments, category)
                 if item:
                     items.append(item)
 
@@ -97,7 +98,7 @@ class HackerNewsScraper(BaseScraper):
                 comments.append(r)
         return comments
 
-    def _parse_story(self, story: dict, comments: List[dict]) -> ContentItem:
+    def _parse_story(self, story: dict, comments: List[dict], category: str) -> ContentItem:
         story_id = story["id"]
         title = story.get("title", "")
         url = story.get("url", f"https://news.ycombinator.com/item?id={story_id}")
@@ -138,7 +139,6 @@ class HackerNewsScraper(BaseScraper):
                 "type": story.get("type", "story"),
                 "discussion_url": hn_discussion_url,
                 "comment_count": len(comments),
-                "category": self.config.get("category"),
-                "source_group": self.config.get("source_group", "ai"),
+                "category": category,
             }
         )

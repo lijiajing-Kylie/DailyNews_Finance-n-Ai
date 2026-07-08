@@ -243,12 +243,20 @@ All sources are configured under the top-level `sources` key in `config.json`.
         "name": "Blog Name",
         "url": "https://example.com/feed.xml",
         "enabled": true,
-        "category": "ai-ml"
+        "category": "ai"
       }
     ]
   }
 }
 ```
+
+`category` — every source type (`github`, `hackernews`, `rss`, `reddit.subreddits`,
+`telegram.channels`, `openbb.watchlists`, `gdelt`, `google_news`) accepts an
+optional `category` field. If set, it must be one of `"ai"`, `"finance"`, or
+`"other"` — any other value fails config validation. If omitted, Horizon
+defaults it to `"other"` at fetch time and logs a warning, so it's worth
+setting explicitly for sources you want routed into the `ai` or `finance`
+digest quota (see [Filtering](#filtering)).
 
 ### Reddit
 
@@ -362,7 +370,7 @@ uv pip install --only-binary=:all: openbb openbb-benzinga
           "enabled": true,
           "provider": "yfinance",
           "fetch_limit": 20,
-          "category": "equities",
+          "category": "finance",
           "symbols": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
         }
       ]
@@ -376,7 +384,7 @@ uv pip install --only-binary=:all: openbb openbb-benzinga
 - `name` — label shown in Horizon metadata and selection breakdowns
 - `provider` — OpenBB provider name such as `yfinance` or `benzinga`
 - `fetch_limit` — maximum news rows requested for that watchlist
-- `category` — optional tag stored on fetched items
+- `category` — optional, one of `"ai"` / `"finance"` / `"other"` (defaults to `"other"` with a warning if omitted)
 - `symbols` — ticker symbols to fetch together; group symbols by provider to keep requests efficient
 
 OpenBB provider credentials are handled by the OpenBB SDK itself, using its own environment variables or user settings. Horizon does not pass those secrets through `data/config.json`.
@@ -410,30 +418,42 @@ No API key is required.
 
 ## Filtering
 
-Content is scored 0-10:
+Content is classified into two categories (**AI** or **Finance**) and then scored
+0-10 using category-specific standards:
 
-- **9-10**: Groundbreaking - Major breakthroughs, paradigm shifts
-- **7-8**: High Value - Important developments, deep technical content
-- **5-6**: Interesting - Worth knowing but not urgent
-- **3-4**: Low Priority - Generic or routine content
-- **0-2**: Noise - Spam, off-topic, or trivial
+**AI content** is judged by: technical breakthrough, ecosystem impact, frontier-pushing nature, practical value.
+
+**Finance content** is judged by: market impact magnitude, policy signal strength, investment actionability, breadth of impact.
+
+Scoring ranges:
+- **9-10**: Industry-defining — major model releases, central bank surprises, blockbuster M&A
+- **7-8**: Significant — notable model updates, key economic data, major earnings
+- **5-6**: Worth noting — insightful analysis, sector reports, commentary
+- **3-4**: Marginal — marketing content, shallow commentary, repackaged news
+- **0-2**: Noise — spam, clickbait, no analytical value
 
 ```json
 {
   "filtering": {
     "ai_score_threshold": 7.0,
+    "finance_score_threshold": 6.0,
     "time_window_hours": 24,
     "max_items": 20,
     "category_groups": {
       "ai": {
         "name": "AI / Machine Learning",
         "limit": 5,
-        "categories": ["ai-news", "ai-tools", "machine-learning", "llm"]
+        "categories": ["ai"]
       },
       "finance": {
         "name": "Finance",
         "limit": 5,
-        "categories": ["finance", "equities", "crypto"]
+        "categories": ["finance"]
+      },
+      "other": {
+        "name": "Other",
+        "limit": 3,
+        "categories": ["other"]
       }
     },
     "default_group": "other",
@@ -442,13 +462,16 @@ Content is scored 0-10:
 }
 ```
 
-- `ai_score_threshold`: Only include content scoring >= this value
+- `ai_score_threshold`: Minimum score for AI-category items (default: `7.0`)
+- `finance_score_threshold`: Minimum score for Finance-category items (default: falls back to `ai_score_threshold` when unset). Set lower than `ai_score_threshold` if Finance content tends to score lower under its own standard.
 - `time_window_hours`: Fetch content from last N hours
 - `max_items`: Optional final cap after all group limits are applied
 - `category_groups`: Optional map of quota groups. Each group requires a positive
-  `limit` and a non-empty `categories` list. Items within each group are kept by
-  AI score, highest first.
-- `category_groups.*.name`: Optional display name used in run logs
+  `limit` and a non-empty `categories` list. Categories here match against
+  source-level `metadata.category` (see [Information Sources](#information-sources))
+  or, as a fallback, `ContentItem.ai_category` ("ai" / "finance") assigned by the
+  AI during scoring. Priority: source-level category > ai_category > default.
+- `category_groups.*.name`: Optional display name used in run logs and summary headings
 - `default_group`: Group key for items whose category does not match any
   configured group. Default is `other`.
 - `default_group_limit`: Optional positive limit for unmatched items. If omitted,
@@ -458,10 +481,12 @@ Balanced digest filtering runs after AI score threshold filtering and topic
 deduplication, but before enrichment. This reduces enrichment calls to only the
 items that can appear in the final digest.
 
-Group matching uses the source category stored in `ContentItem.metadata.category`.
-RSS sources expose this through `sources.rss[].category`, and OpenBB watchlists
-through `sources.openbb.watchlists[].category`. Sources without a category enter
-the default group.
+Every source config accepts a `category` field restricted to `"ai"` / `"finance"`
+/ `"other"` (see [Information Sources](#information-sources)); Horizon defaults
+it to `"other"` with a logged warning when left unset. Group matching checks this
+source-level category first, falling back to `item.ai_category` (assigned by AI
+during scoring) for items whose source category doesn't match any configured
+group.
 
 If the same category appears in multiple groups, Horizon logs a warning and uses
 the first group in configuration order. Omitting both `category_groups` and
@@ -665,7 +690,7 @@ In DingTalk, create a custom group robot and use a custom keyword such as `Horiz
   "msgtype": "markdown",
   "markdown": {
     "title": "Horizon #{date} Daily",
-    "text": "Horizon result: #{result}\n\nHorizon important items: #{important_items}/#{all_items}\n\n#{summary}"
+    "text": "#{summary}"
   }
 }
 ```
@@ -710,13 +735,6 @@ With this layout, Horizon sends one interactive card containing the overview and
     },
     "body": {
       "elements": [
-        {
-          "tag": "markdown",
-          "content": "Horizon result: #{result}\nHorizon important items: #{important_items}/#{all_items}"
-        },
-        {
-          "tag": "hr"
-        },
         {
           "tag": "markdown",
           "content": "#{summary}"

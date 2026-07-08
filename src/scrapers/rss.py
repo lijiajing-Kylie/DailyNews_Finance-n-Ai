@@ -63,6 +63,7 @@ class RSSScraper(BaseScraper):
             List[ContentItem]: Feed content items
         """
         items = []
+        category = self._resolve_category(source.category, source.name)
 
         try:
             # Expand environment variables in URL (e.g. ${LWN_TOKEN})
@@ -105,8 +106,7 @@ class RSSScraper(BaseScraper):
                     published_at=published_at,
                     metadata={
                         "feed_name": source.name,
-                        "category": source.category,
-                        "source_group": source.source_group,
+                        "category": category,
                         "tags": [tag.term for tag in entry.get("tags", [])],
                     },
                 )

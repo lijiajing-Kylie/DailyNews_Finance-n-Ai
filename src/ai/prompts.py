@@ -22,55 +22,129 @@ If there are no duplicates at all, return: {{"duplicates": []}}"""
 
 CONTENT_ANALYSIS_SYSTEM = """You are an expert content curator. Your job has TWO separate steps:
 
-## Step 1: Relevance gate (binary — yes or no)
+## Step 1: Classify the content into a category
 
-Decide whether this content is worth including for a reader interested in:
-- **AI 前沿发展动态**: 大模型、AI 研究突破、AI 公司战略、开源 AI、GPU/AI 芯片
-- **科技**: 半导体、云计算、SaaS、消费电子、科技公司动态
-- **金融**: 央行政策、利率、宏观经济、企业财报、并购、IPO
-- **股票**: 美股、A股、港股市场走势、重要个股动态
-- **黄金/白银**: 贵金属价格、供需变化、相关政策
+Determine which (if any) of the following two categories this content belongs to:
 
-**relevant = true** if the content is about any of the above with substance. Specifically:
-- AI: model releases, research breakthroughs, AI company strategy, infrastructure, regulation
-- Tech: semiconductor industry, cloud computing, major product launches, tech earnings
-- Finance/Macro: central bank decisions, interest rates, employment data, major M&A, IPOs
-- Stocks: significant market moves (S&P 500, NASDAQ, individual mega-caps), analyst calls
-- Gold/Silver: price movements, supply/demand shifts, policy changes affecting precious metals
+### AI 大类
+Includes but not limited to:
+- **大模型 & AI 研究**: LLM releases, research breakthroughs, benchmarks, new architectures
+- **AI 公司战略**: Company strategy, funding, acquisitions, partnerships, talent moves
+- **AI 基础设施**: GPU/AI chips, cloud AI services, data centers, inference optimization
+- **AI 产品 & 应用**: AI coding tools, AI agents, AI search, consumer AI products
+- **AI 政策 & 安全**: AI regulation, safety research, alignment, copyright, governance
+- **开源 AI**: Open-source models, frameworks, tools, community developments
+- **半导体 & 科技**: Semiconductor industry, cloud computing, major tech product launches, tech earnings — when tied to AI ecosystem
 
-**relevant = false** if the content is:
-- Generic lifestyle, entertainment, sports — unless tied to above topics
-- Local news with no broader market/industry impact
-- Promotional/spam content
-- Content so shallow it has no analytical value
+### Finance 大类
+Includes but not limited to:
+- **宏观经济**: Central bank decisions, interest rates, inflation, GDP, employment data
+- **金融市场**: Stock market movements (S&P 500, NASDAQ, A-shares, H-shares), bond markets
+- **企业财经**: Earnings reports, M&A, IPOs, corporate restructuring
+- **贵金属 & 商品**: Gold, silver, commodity prices, supply/demand shifts
+- **金融政策**: Financial regulation, monetary policy, trade policy, capital controls
+- **地缘经济**: Geopolitical events with clear market impact, sanctions, trade disputes
 
-When in doubt, ask: "Would someone tracking AI + finance want to read this?" If no → relevant = false.
+**Return "ai"** if the content is primarily about AI/tech as defined above.
+**Return "finance"** if the content is primarily about finance/markets as defined above.
+**Return null** if the content is NOT about either AI or finance (e.g., entertainment, sports, local news, generic lifestyle).
 
-## Step 2: Importance score (0-10) — ONLY if relevant = true
+When a story touches both (e.g., "AI stock rally" or "NVIDIA earnings"), pick the DOMINANT angle:
+- If the focus is on the technology/product/research → "ai"
+- If the focus is on market impact/investment/valuation → "finance"
 
-Score purely on IMPORTANCE and QUALITY. Use the full 0-10 range; spread scores out when there are meaningful differences.
+When in doubt, ask: "Would someone tracking AI + finance want to read this?" If no → category = null.
 
-**9-10: Must-read** — Major market moves, central bank decisions, breakthrough AI releases, blockbuster M&A. These are the stories that move markets or define industries.
+## Step 2: Importance score (0-10) — ONLY if category is not null
 
-**7-8: Very important** — Significant earnings reports, notable AI developments, important analyst calls, sector-level trends. Solid substance and authority.
+**IMPORTANT**: AI and Finance content have DIFFERENT scoring standards. Score according to the category you assigned in Step 1.
 
-**5-6: Interesting but not urgent** — Useful commentary, incremental updates, background analysis. Nice to know but skipable.
+Use the FULL 0-10 range; spread scores out when there are meaningful differences.
 
-**3-4: Marginal** — Thin content, marketing-heavy, rehashed ideas. Low signal-to-noise.
+---
 
-**0-2: Noise** — Spam, clickbait, promotional content.
+### Scoring Standards for AI Content
 
-Scoring factors across all topics:
+Judged by: technical breakthrough, ecosystem impact, frontier-pushing, practical value.
+
+**9-10: Industry-defining**
+- Major model releases that change the competitive landscape (GPT-5, Claude 5, etc.)
+- Fundamental research breakthroughs (new architecture, scaling paradigm shift)
+- Key infrastructure changes (CUDA open-sourced, major chip embargo)
+- Anchors: GPT-5 launch, NVIDIA B200 announcement, EU AI Act passed
+
+**7-8: Significant**
+- Notable model updates with clear improvements (Llama 4, Qwen 3, DeepSeek-R2)
+- Important but incremental research (new benchmark SOTA, training technique)
+- Major company moves (significant funding round, key hire, strategic pivot)
+- Key open-source releases that shift the ecosystem
+- Anchors: Llama 4 weights released, OpenAI $10B funding, a new post-training technique shows 15% gain
+
+**5-6: Worth noting**
+- Incremental product updates, minor model releases
+- Insightful commentary/analysis from credible sources
+- Early-stage research or preprints with potential
+- Industry trend reports and surveys
+- Open-source tool releases with niche but real utility
+- Anchors: a company publishes AI roadmap, a useful new fine-tuning library
+
+**3-4: Marginal**
+- Marketing-heavy announcements with little substance
+- Rehashed ideas, shallow "AI will change X" think pieces
+- Minor funding rounds or partnerships
+- Thin tutorials or listicles
+
+**0-2: Noise**
+- Spam, clickbait, promotional, no analytical value
+
+---
+
+### Scoring Standards for Finance Content
+
+Judged by: market impact magnitude, policy signal strength, investment actionability, breadth of impact.
+
+**9-10: Market-moving or policy-defining**
+- Central bank rate decisions (especially surprises)
+- Major geopolitical events with clear market impact
+- Blockbuster M&A (>$50B), landmark IPOs
+- Policy shifts that reshape market structure
+- Anchors: Fed unexpectedly hikes 50bp, US-China trade deal signed, gold surges 5% in a day
+
+**7-8: Highly important**
+- Key economic data significantly beating/missing expectations (NFP, CPI, GDP)
+- Major earnings reports from megacaps
+- Notable M&A, IPOs, or regulatory decisions
+- Commodity price moves with clear catalysts
+- Anchors: NFP 200K above consensus, Apple earnings beat by 15%, ECB signals policy shift
+
+**5-6: Informative**
+- Sector-level analysis with data-backed insights
+- Analyst upgrades/downgrades on major names
+- Regional policy changes or central bank speeches
+- Industry trend reports, earnings previews
+- Moderate market movements with clear reasoning
+- Anchors: Goldman upgrades semiconductor sector, BOJ deputy comments on rate path
+
+**3-4: Marginal**
+- Minor daily market fluctuations without analysis
+- Promotional stock picks, shallow market commentary
+- Repackaged news without original insight
+- Single-stock noise without broader significance
+
+**0-2: Noise**
+- Spam, clickbait, promotional, no analytical value
+
+---
+
+### Shared scoring factors
 - Impact magnitude — how many people/companies/markets affected?
 - Timeliness — is this breaking news or stale?
 - Source authority — official sources > aggregators > random posts
 - Specificity — concrete numbers/names > vague commentary
-- For stocks/commodities: price magnitude, volume, unexpectedness
-- For AI: technical depth, frontier-pushing nature
 - Community validation (upvotes/comments) is a positive signal but NOT a substitute for inherent importance
 """
 
-CONTENT_ANALYSIS_USER = """Analyze the following content: is it relevant to AI, tech, finance, stocks, or precious metals? If yes, score its importance.
+CONTENT_ANALYSIS_USER = """Analyze the following content and classify it into AI or Finance. If it belongs to neither, return null.
 
 Content:
 Title: {title}
@@ -82,18 +156,22 @@ URL: {url}
 
 Respond with valid JSON only:
 {{
-  "relevant": true or false,
-  "score": <number 0-10, only meaningful if relevant is true>,
+  "category": "ai" | "finance" | null,
+  "score": <number 0-10, only meaningful if category is not null>,
   "reason": "<brief explanation in Chinese, mention why it matters>",
   "summary": "<one-sentence Chinese summary>",
   "tags": ["<tag1>", "<tag2>", ...]
 }}
 
 IMPORTANT:
-- "relevant" is a BOOLEAN (true/false), not a number
-- If relevant is false, set score to 0
+- "category" MUST be one of: "ai", "finance", or null (JSON null, not the string "null")
+- Choose "ai" if the dominant focus is technology, models, research, products, or AI industry
+- Choose "finance" if the dominant focus is markets, macroeconomics, earnings, M&A, or commodities
+- If the content is NOT about AI or finance, return null for category and 0 for score
+- If category is null, set score to 0
+- Score using the category-specific standards: AI by technical breakthrough & ecosystem impact; Finance by market impact & policy signal
 - Use the FULL 0-10 range; don't cluster everything at 7-8
-- Score reflects actual importance, not just topical relevance
+- Score reflects actual importance under the category's own standard, not just topical relevance
 """
 
 CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.

@@ -127,9 +127,10 @@ class OpenBBScraper(BaseScraper):
             provider=watchlist.provider,
         )
         results = getattr(response, "results", None) or []
+        category = self._resolve_category(watchlist.category, f"openbb:{watchlist.name}")
         items: List[ContentItem] = []
         for raw in results:
-            item = self._raw_to_item(raw, watchlist, since_utc)
+            item = self._raw_to_item(raw, watchlist, since_utc, category)
             if item is not None:
                 items.append(item)
         return items
@@ -139,6 +140,7 @@ class OpenBBScraper(BaseScraper):
         raw: Any,
         watchlist: OpenBBWatchlist,
         since_utc: datetime,
+        category: str,
     ) -> Optional[ContentItem]:
         """Map one OpenBB news record into a ContentItem.
 
@@ -168,8 +170,7 @@ class OpenBBScraper(BaseScraper):
             "watchlist": watchlist.name,
             "provider": watchlist.provider,
             "symbols": symbols,
-            "category": watchlist.category,
-            "source_group": watchlist.source_group,
+            "category": category,
         }
 
         return ContentItem(

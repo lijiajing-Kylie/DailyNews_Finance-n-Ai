@@ -17,6 +17,11 @@ def _pangu(text: str) -> str:
     return text
 
 
+CATEGORY_LABELS = {
+    "ai": "AI & Tech",
+    "finance": "Finance & Markets",
+}
+
 LABELS = {
     "zh": {
         "header": "Horizon 每日速递 · AI & 金融",
@@ -56,7 +61,8 @@ class DailySummarizer:
     ) -> str:
         """Generate daily summary in Markdown format.
 
-        Items are rendered in score-descending order (already sorted by orchestrator).
+        Items are grouped by ai_category (AI / Finance) then sorted by score
+        descending within each group.
 
         Args:
             items: High-scoring content items (already enriched)
@@ -72,23 +78,63 @@ class DailySummarizer:
         if not items:
             return self._generate_empty_summary(date, total_fetched, labels)
 
+        # Partition items by ai_category
+        ai_items = [item for item in items if item.ai_category == "ai"]
+        finance_items = [item for item in items if item.ai_category == "finance"]
+        other_items = [item for item in items if item.ai_category not in ("ai", "finance")]
+
+        # Build category stats line
+        stats_parts = [f"AI: {len(ai_items)}", f"Finance: {len(finance_items)}"]
+        if other_items:
+            stats_parts.append(f"Other: {len(other_items)}")
+        stats_line = " | ".join(stats_parts)
+
         header = (
             f"# {labels['header']} - {date}\n\n"
-            f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n\n"
+            f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n"
+            f"> {stats_line}\n\n"
             "---\n\n"
         )
 
-        # TOC
-        toc_entries = []
-        for i, item in enumerate(items):
-            _t = item.metadata.get("title_zh") or item.title
-            t = str(_t).replace("[", "(").replace("]", ")")
-            t = _pangu(t)
-            score = item.ai_score or "?"
-            toc_entries.append(f"{i + 1}. [{t}](#item-{i + 1}) \u2b50\ufe0f {score}/10")
-        toc = "\n".join(toc_entries) + "\n\n---\n\n"
+        # Build TOC grouped by category
+        toc_parts = []
+        global_idx = 0
 
-        parts = [self._format_item(item, labels, language, i + 1) for i, item in enumerate(items)]
+        def _append_toc(cat_items, cat_label):
+            nonlocal global_idx
+            if not cat_items:
+                return
+            toc_parts.append(f"## {cat_label}\n")
+            for item in cat_items:
+                global_idx += 1
+                _t = item.metadata.get("title_zh") or item.title
+                t = str(_t).replace("[", "(").replace("]", ")")
+                t = _pangu(t)
+                score = item.ai_score or "?"
+                toc_parts.append(f"{global_idx}. [{t}](#item-{global_idx}) \u2b50\ufe0f {score}/10")
+            toc_parts.append("")
+
+        _append_toc(ai_items, CATEGORY_LABELS["ai"])
+        _append_toc(finance_items, CATEGORY_LABELS["finance"])
+        _append_toc(other_items, "Other")
+        toc = "\n".join(toc_parts) + "\n---\n\n"
+
+        # Build item details grouped by category
+        parts = []
+        global_idx = 0
+
+        def _append_items(cat_items, cat_label):
+            nonlocal global_idx
+            if not cat_items:
+                return
+            parts.append(f"## {cat_label}\n\n")
+            for item in cat_items:
+                global_idx += 1
+                parts.append(self._format_item(item, labels, language, global_idx))
+
+        _append_items(ai_items, CATEGORY_LABELS["ai"])
+        _append_items(finance_items, CATEGORY_LABELS["finance"])
+        _append_items(other_items, "Other")
 
         return header + toc + "".join(parts)
 

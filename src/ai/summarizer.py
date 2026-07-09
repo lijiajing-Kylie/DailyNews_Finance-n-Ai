@@ -60,6 +60,7 @@ class DailySummarizer:
         language: str = "zh",
         include_header: bool = True,
         include_discussion: bool = True,
+        include_source_line: bool = True,
     ) -> str:
         """Generate daily summary in Markdown format.
 
@@ -71,10 +72,13 @@ class DailySummarizer:
             date: Date string (YYYY-MM-DD)
             total_fetched: Total number of items fetched before filtering
             language: Output language, either "en" or "zh"
-            include_header: Whether to include the leading "# {title} - {date}"
-                line (some delivery channels render their own title)
+            include_header: Whether to include the leading title/description
+                block (some delivery channels render their own title)
             include_discussion: Whether to include the community discussion
                 block for each item
+            include_source_line: Whether to include the per-item source
+                attribution line (source type, feed/author, date, discussion
+                link)
 
         Returns:
             str: Markdown formatted summary
@@ -97,12 +101,15 @@ class DailySummarizer:
             stats_parts.append(f"Other: {len(other_items)}")
         stats_line = " | ".join(stats_parts)
 
-        header = (
-            (f"# {labels['header']} - {date}\n\n" if include_header else "")
-            + f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n"
-            f"> {stats_line}\n\n"
-            "---\n\n"
-        )
+        if include_header:
+            header = (
+                f"# {labels['header']} - {date}\n\n"
+                f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n"
+                f"> {stats_line}\n\n"
+                "---\n\n"
+            )
+        else:
+            header = ""
 
         # Build TOC grouped by category
         toc_parts = []
@@ -142,6 +149,7 @@ class DailySummarizer:
                     self._format_item(
                         item, labels, language, global_idx,
                         include_discussion=include_discussion,
+                        include_source_line=include_source_line,
                     )
                 )
 
@@ -197,6 +205,7 @@ class DailySummarizer:
         language: str,
         index: int,
         include_discussion: bool = True,
+        include_source_line: bool = True,
     ) -> str:
         """Format a single ContentItem into Markdown."""
         _title = item.metadata.get("title_zh") or item.title
@@ -221,36 +230,38 @@ class DailySummarizer:
         summary = _pangu(summary)
         discussion = _pangu(discussion)
 
-        # Source line with parts joined by " · ", link appended at end
-        source_type = item.source_type.value
-        source_parts = [source_type]
-        if meta.get("subreddit"):
-            source_parts.append(f"r/{meta['subreddit']}")
-        if meta.get("feed_name"):
-            source_parts.append(meta["feed_name"])
-        else:
-            source_parts.append(item.author or "unknown")
-        if item.published_at:
-            source_parts.append(
-                f"{item.published_at.month}月{item.published_at.day}日 "
-                f"{item.published_at:%H:%M}"
-            )
-        source_line = " \u00b7 ".join(source_parts)  # ·
-
-        discussion_url = meta.get("discussion_url")
-        if discussion_url:
-            discussion_url = str(discussion_url)
-            if discussion_url != url:
-                source_line += f' · [{labels["discussion"]}]({discussion_url})'
-
         lines = [
             f'<a id="item-{index}"></a>',
             f"## [{title}]({url}) ⭐️ {score}/10",  # ⭐️
             "",
             summary,
-            "",
-            source_line,
         ]
+
+        if include_source_line:
+            SEP = "·"
+            source_type = item.source_type.value
+            source_parts = [source_type]
+            if meta.get("subreddit"):
+                source_parts.append(f"r/{meta['subreddit']}")
+            if meta.get("feed_name"):
+                source_parts.append(meta["feed_name"])
+            else:
+                source_parts.append(item.author or "unknown")
+            if item.published_at:
+                source_parts.append(
+                    f"{item.published_at.month}月{item.published_at.day}日 "
+                    f"{item.published_at:%H:%M}"
+                )
+            source_line = f" {SEP} ".join(source_parts)
+
+            discussion_url = meta.get("discussion_url")
+            if discussion_url:
+                discussion_url = str(discussion_url)
+                if discussion_url != url:
+                    source_line += f' {SEP} [{labels["discussion"]}]({discussion_url})'
+
+            lines.append("")
+            lines.append(source_line)
 
         reason = item.metadata.get("reason_zh") or item.ai_reason or ""
         if reason:

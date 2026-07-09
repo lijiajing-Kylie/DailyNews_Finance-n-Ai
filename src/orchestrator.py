@@ -261,30 +261,36 @@ class HorizonOrchestrator:
             # Send webhook notification if configured
             if self.webhook_notifier:
                 # Webhook gets its own leaner rendering: no leading H1 title
-                # (the request_body template supplies its own) and no
-                # community discussion blocks, to keep messages compact.
+                # (the request_body template supplies its own), no community
+                # discussion blocks, and no per-item source attribution line —
+                # keeps messages compact.
                 webhook_summary_full = await summarizer.generate_summary(
                     important_items, today, len(all_items), language=lang,
                     include_header=False, include_discussion=False,
+                    include_source_line=False,
                 )
                 # WeChat Work's markdown.content limit (4096) is a UTF-8 byte
-                # count, not a character count; CJK chars are 3 bytes each,
-                # so truncate by encoded bytes, not len(). Budget ~3500 bytes
-                # for the summary, leaving headroom for the header/metadata
-                # text wrapped around it in the request_body template.
-                webhook_summary = self._truncate_utf8(webhook_summary_full, 3500)
+                # count, not a character count; CJK chars are 3 bytes each.
+                # Rather than truncate (which silently drops content), split
+                # into multiple messages on item boundaries so nothing is lost.
+                webhook_chunks = self._chunk_utf8(webhook_summary_full, 3500)
                 self.console.print(
                     f"   (webhook summary: {len(webhook_summary_full.encode('utf-8'))} bytes raw "
-                    f"→ {len(webhook_summary.encode('utf-8'))} bytes after truncation)"
+                    f"→ split into {len(webhook_chunks)} message(s))"
                 )
-                await self.webhook_notifier.send_daily_summary(
-                    summary=webhook_summary,
-                    important_items=important_items,
-                    all_items_count=len(all_items),
-                    date=today,
-                    lang=lang,
-                    summarizer=summarizer,
-                )
+                for chunk_index, chunk in enumerate(webhook_chunks, start=1):
+                    piece = (
+                        chunk if len(webhook_chunks) == 1
+                        else f"（{chunk_index}/{len(webhook_chunks)}）\n\n{chunk}"
+                    )
+                    await self.webhook_notifier.send_daily_summary(
+                        summary=piece,
+                        important_items=important_items,
+                        all_items_count=len(all_items),
+                        date=today,
+                        lang=lang,
+                        summarizer=summarizer,
+                    )
 
             self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
             usage = get_usage_snapshot()
@@ -315,17 +321,59 @@ class HorizonOrchestrator:
             raise
 
     @staticmethod
-    def _truncate_utf8(text: str, max_bytes: int) -> str:
-        """Truncate text to at most `max_bytes` when UTF-8 encoded.
+    def _chunk_utf8(text: str, max_bytes: int, split: str = "---\n\n") -> List[str]:
+        """Split text into chunks each within `max_bytes` when UTF-8 encoded.
 
-        Truncating by character count under-counts for CJK text, where each
-        character is 3 bytes in UTF-8. Cuts on a character boundary so the
-        result stays valid UTF-8.
+        Byte budgets (e.g. WeChat Work's 4096-byte markdown.content limit)
+        undercount CJK text if measured by character count — each CJK
+        character is 3 bytes in UTF-8. Splits on `split` (an item boundary
+        in the rendered summary) so items are never cut mid-way; a single
+        item bigger than `max_bytes` on its own is hard-cut at a byte
+        boundary as a last resort.
         """
-        encoded = text.encode("utf-8")
-        if len(encoded) <= max_bytes:
-            return text
-        return encoded[:max_bytes].decode("utf-8", errors="ignore")
+        segments = text.split(split)
+        split_bytes = len(split.encode("utf-8"))
+
+        chunks: List[str] = []
+        current: List[str] = []
+        current_bytes = 0
+
+        def flush() -> None:
+            if current:
+                chunks.append(split.join(current))
+
+        for seg in segments:
+            seg_bytes = len(seg.encode("utf-8"))
+
+            if seg_bytes > max_bytes:
+                flush()
+                current.clear()
+                current_bytes = 0
+                encoded = seg.encode("utf-8")
+                i = 0
+                while i < len(encoded):
+                    end = min(i + max_bytes, len(encoded))
+                    # Back off from a mid-character cut: UTF-8 continuation
+                    # bytes are 0b10xxxxxx: skip backward off of them so we
+                    # don't split a multi-byte character across chunks.
+                    while end > i and end < len(encoded) and (encoded[end] & 0xC0) == 0x80:
+                        end -= 1
+                    chunks.append(encoded[i:end].decode("utf-8"))
+                    i = end
+                continue
+
+            added_bytes = seg_bytes + (split_bytes if current else 0)
+            if current and current_bytes + added_bytes > max_bytes:
+                flush()
+                current = []
+                current_bytes = 0
+                added_bytes = seg_bytes
+
+            current.append(seg)
+            current_bytes += added_bytes
+
+        flush()
+        return chunks or [""]
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours:

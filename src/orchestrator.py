@@ -206,6 +206,14 @@ class HorizonOrchestrator:
             summary_path = self.storage.save_daily_summary(today, summary, language=lang)
             self.console.print(f"💾 Saved summary to: {summary_path}\n")
 
+            # Persist the final digest items too, so a standalone step (e.g.
+            # `horizon-webhook --real`) can re-push this exact run's data
+            # without re-fetching/re-scoring/re-enriching.
+            items_path = self.storage.save_important_items(
+                today, important_items, language=lang, all_items_count=len(all_items)
+            )
+            self.console.print(f"💾 Saved digest items to: {items_path}\n")
+
             # Copy to docs/ for GitHub Pages
             try:
                 from pathlib import Path
@@ -260,37 +268,7 @@ class HorizonOrchestrator:
 
             # Send webhook notification if configured
             if self.webhook_notifier:
-                # Webhook gets its own leaner rendering: no leading H1 title
-                # (the request_body template supplies its own), no community
-                # discussion blocks, and no per-item source attribution line —
-                # keeps messages compact.
-                webhook_summary_full = await summarizer.generate_summary(
-                    important_items, today, len(all_items), language=lang,
-                    include_header=False, include_discussion=False,
-                    include_source_line=False,
-                )
-                # WeChat Work's markdown.content limit (4096) is a UTF-8 byte
-                # count, not a character count; CJK chars are 3 bytes each.
-                # Rather than truncate (which silently drops content), split
-                # into multiple messages on item boundaries so nothing is lost.
-                webhook_chunks = self._chunk_utf8(webhook_summary_full, 3500)
-                self.console.print(
-                    f"   (webhook summary: {len(webhook_summary_full.encode('utf-8'))} bytes raw "
-                    f"→ split into {len(webhook_chunks)} message(s))"
-                )
-                for chunk_index, chunk in enumerate(webhook_chunks, start=1):
-                    piece = (
-                        chunk if len(webhook_chunks) == 1
-                        else f"（{chunk_index}/{len(webhook_chunks)}）\n\n{chunk}"
-                    )
-                    await self.webhook_notifier.send_daily_summary(
-                        summary=piece,
-                        important_items=important_items,
-                        all_items_count=len(all_items),
-                        date=today,
-                        lang=lang,
-                        summarizer=summarizer,
-                    )
+                await self.push_webhook(important_items, len(all_items), today, lang, summarizer)
 
             self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
             usage = get_usage_snapshot()
@@ -319,6 +297,58 @@ class HorizonOrchestrator:
                 )
 
             raise
+
+    async def push_webhook(
+        self,
+        important_items: List[ContentItem],
+        all_items_count: int,
+        date: str,
+        lang: str,
+        summarizer: DailySummarizer,
+    ) -> None:
+        """Render and send the webhook notification for a digest.
+
+        This is the same code path `run()` uses after a full pipeline
+        execution, factored out so it can also be called standalone (e.g.
+        by `horizon-webhook --real`) against a previously persisted digest
+        without re-fetching/re-scoring/re-enriching.
+        """
+        if not self.webhook_notifier:
+            self.console.print("[yellow]Webhook is not enabled, skipping push.[/yellow]")
+            return
+
+        # Webhook gets its own leaner rendering: no leading H1 title (the
+        # request_body template supplies its own), no community discussion
+        # blocks, no per-item source attribution line, and no score/star
+        # badge — keeps messages compact.
+        webhook_summary_full = await summarizer.generate_summary(
+            important_items, date, all_items_count, language=lang,
+            include_header=False, include_discussion=False,
+            include_source_line=False, include_score=False,
+            reason_label="意义",
+        )
+        # WeChat Work's markdown.content limit (4096) is a UTF-8 byte count,
+        # not a character count; CJK chars are 3 bytes each. Rather than
+        # truncate (which silently drops content), split into multiple
+        # messages on item boundaries so nothing is lost.
+        webhook_chunks = self._chunk_utf8(webhook_summary_full, 3500)
+        self.console.print(
+            f"   (webhook summary: {len(webhook_summary_full.encode('utf-8'))} bytes raw "
+            f"→ split into {len(webhook_chunks)} message(s))"
+        )
+        for chunk_index, chunk in enumerate(webhook_chunks, start=1):
+            piece = (
+                chunk if len(webhook_chunks) == 1
+                else f"（{chunk_index}/{len(webhook_chunks)}）\n\n{chunk}"
+            )
+            await self.webhook_notifier.send_daily_summary(
+                summary=piece,
+                important_items=important_items,
+                all_items_count=all_items_count,
+                date=date,
+                lang=lang,
+                summarizer=summarizer,
+            )
 
     @staticmethod
     def _chunk_utf8(text: str, max_bytes: int, split: str = "---\n\n") -> List[str]:

@@ -383,14 +383,14 @@
     "google_news": null
   },
   "filtering": {
-    "ai_score_threshold": 8.0,
+    "ai_score_threshold": 9.0,
     "finance_score_threshold": 5.0,
     "time_window_hours": 24,
     "max_items": 10,
     "category_groups": {
       "ai": {
         "name": "AI & Tech",
-        "limit": 3,
+        "limit": 2,
         "categories": [
           "ai"
         ]

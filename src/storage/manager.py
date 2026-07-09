@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ..models import Config
+from ..models import Config, ContentItem
 
 
 # Matches ${VAR_NAME} in string config values. Names follow env-var rules
@@ -116,6 +116,58 @@ class StorageManager:
             f.write(markdown)
 
         return filepath
+
+    def save_important_items(
+        self,
+        date: str,
+        items: list[ContentItem],
+        language: str = "zh",
+        all_items_count: int | None = None,
+    ) -> Path:
+        """Persist the final digest items as JSON.
+
+        Lets a later standalone step (e.g. re-pushing the webhook) rebuild
+        the exact same ContentItem list a full pipeline run produced,
+        without re-running fetch/score/enrich.
+        """
+        filename = f"horizon-{date}-{language}-items.json"
+        filepath = self.summaries_dir / filename
+        payload = {
+            "all_items_count": all_items_count if all_items_count is not None else len(items),
+            "items": [item.model_dump(mode="json") for item in items],
+        }
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        return filepath
+
+    def load_important_items(
+        self, date: str, language: str = "zh"
+    ) -> tuple[list[ContentItem], int]:
+        """Load a previously persisted digest: (items, all_items_count).
+
+        Returns ([], 0) if no saved digest exists for that date/language.
+        """
+        filename = f"horizon-{date}-{language}-items.json"
+        filepath = self.summaries_dir / filename
+        if not filepath.exists():
+            return [], 0
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        items = [ContentItem.model_validate(item) for item in payload["items"]]
+        return items, payload.get("all_items_count", len(items))
+
+    def find_latest_items_date(self, language: str = "zh") -> str | None:
+        """Find the most recent date with a saved digest items JSON file."""
+        candidates = sorted(self.summaries_dir.glob(f"horizon-*-{language}-items.json"))
+        if not candidates:
+            return None
+        # "horizon-2026-07-09-zh-items.json" -> "2026-07-09"
+        name_parts = candidates[-1].stem.split("-")
+        return "-".join(name_parts[1:4])
 
     def load_subscribers(self) -> list:
         """Loads the list of email subscribers."""

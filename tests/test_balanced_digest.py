@@ -180,6 +180,7 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
     )
     storage = SimpleNamespace(
         save_daily_summary=lambda *a, **kw: None,
+        save_important_items=lambda *a, **kw: None,
         load_subscribers=lambda: [],
     )
     orchestrator = HorizonOrchestrator(config, storage)

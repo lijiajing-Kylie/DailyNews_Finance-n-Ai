@@ -61,6 +61,8 @@ class DailySummarizer:
         include_header: bool = True,
         include_discussion: bool = True,
         include_source_line: bool = True,
+        include_score: bool = True,
+        reason_label: str = "评分理由",
     ) -> str:
         """Generate daily summary in Markdown format.
 
@@ -79,6 +81,10 @@ class DailySummarizer:
             include_source_line: Whether to include the per-item source
                 attribution line (source type, feed/author, date, discussion
                 link)
+            include_score: Whether to show the "⭐️ {score}/10" score badge
+                in the TOC and per-item title
+            reason_label: Label used for the reason line (e.g. "评分理由"
+                for the full summary, "意义" for the leaner webhook variant)
 
         Returns:
             str: Markdown formatted summary
@@ -125,8 +131,11 @@ class DailySummarizer:
                 _t = item.metadata.get("title_zh") or item.title
                 t = str(_t).replace("[", "(").replace("]", ")")
                 t = _pangu(t)
-                score = item.ai_score or "?"
-                toc_parts.append(f"{global_idx}. [{t}](#item-{global_idx}) \u2b50\ufe0f {score}/10")
+                if include_score:
+                    score = item.ai_score or "?"
+                    toc_parts.append(f"{global_idx}. [{t}](#item-{global_idx}) \u2b50\ufe0f {score}/10")
+                else:
+                    toc_parts.append(f"{global_idx}. [{t}](#item-{global_idx})")
             toc_parts.append("")
 
         _append_toc(ai_items, CATEGORY_LABELS["ai"])
@@ -150,6 +159,8 @@ class DailySummarizer:
                         item, labels, language, global_idx,
                         include_discussion=include_discussion,
                         include_source_line=include_source_line,
+                        include_score=include_score,
+                        reason_label=reason_label,
                     )
                 )
 
@@ -206,6 +217,8 @@ class DailySummarizer:
         index: int,
         include_discussion: bool = True,
         include_source_line: bool = True,
+        include_score: bool = True,
+        reason_label: str = "评分理由",
     ) -> str:
         """Format a single ContentItem into Markdown."""
         _title = item.metadata.get("title_zh") or item.title
@@ -230,9 +243,10 @@ class DailySummarizer:
         summary = _pangu(summary)
         discussion = _pangu(discussion)
 
+        title_line = f"## [{title}]({url}) ⭐️ {score}/10" if include_score else f"## [{title}]({url})"
         lines = [
             f'<a id="item-{index}"></a>',
-            f"## [{title}]({url}) ⭐️ {score}/10",  # ⭐️
+            title_line,
             "",
             summary,
         ]
@@ -265,7 +279,7 @@ class DailySummarizer:
 
         reason = item.metadata.get("reason_zh") or item.ai_reason or ""
         if reason:
-            lines.insert(4, f"> **评分理由**: {reason}")
+            lines.insert(4, f"> **{reason_label}**: {reason}")
 
         if discussion and include_discussion:
             lines.append("")

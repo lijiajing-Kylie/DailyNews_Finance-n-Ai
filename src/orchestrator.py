@@ -317,10 +317,34 @@ class HorizonOrchestrator:
             self.console.print("[yellow]Webhook is not enabled, skipping push.[/yellow]")
             return
 
-        # Webhook gets its own leaner rendering: no leading H1 title (the
-        # request_body template supplies its own), no community discussion
-        # blocks, no per-item source attribution line, and no score/star
-        # badge — keeps messages compact.
+        is_summary_and_items = (
+            self.config.webhook
+            and self.config.webhook.delivery == "summary_and_items"
+        )
+
+        if is_summary_and_items:
+            # In summary_and_items mode, send_daily_summary generates one
+            # message per item from the ContentItems directly, so chunking
+            # the summary text would duplicate every item notification per
+            # chunk — see below.  Send once and let send_daily_summary
+            # handle the per-item splitting.
+            self.console.print(
+                f"   (summary_and_items mode: sending {len(important_items)} separate item messages)"
+            )
+            await self.webhook_notifier.send_daily_summary(
+                summary="",
+                important_items=important_items,
+                all_items_count=all_items_count,
+                date=date,
+                lang=lang,
+                summarizer=summarizer,
+            )
+            return
+
+        # Summary mode — Webhook gets its own leaner rendering: no leading
+        # H1 title (the request_body template supplies its own), no community
+        # discussion blocks, no per-item source attribution line, and no
+        # score/star badge — keeps messages compact.
         webhook_summary_full = await summarizer.generate_summary(
             important_items, date, all_items_count, language=lang,
             include_header=False, include_discussion=False,
